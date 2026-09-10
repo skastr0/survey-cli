@@ -24,7 +24,10 @@
     "test": "vitest run",
     "build": "bun run build:cli",
     "build:cli": "bun scripts/build.ts",
-    "verify": "bun run typecheck && bun run test && bun run build"
+    "verify": "bun run typecheck && bun run test && bun run build",
+    "build:npm": "bun scripts/build-npm.ts",
+    "install:local": "bun scripts/install.ts",
+    "pack:dry-run": "bun run build:npm && npm pack --dry-run --workspaces --include-workspace-root=false 2>/dev/null || true"
   },
   "resolutions": {
     "@effect/platform-node-shared": "4.0.0-rc.112",
