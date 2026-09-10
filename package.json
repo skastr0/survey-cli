@@ -1,0 +1,33 @@
+{
+  "name": "@skastr0/survey-cli-workspace",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "@types/bun": "latest",
+    "@types/node": "22.20.1",
+    "vitest": "5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-rc.112",
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112"
+  },
+  "version": "0.1.0",
+  "description": "Consolidated researcher toolkit CLI \u2014 Exa, Firecrawl, Parallel, Keenable, LlamaCloud behind one JSON-first Effect v4 binary.",
+  "scripts": {
+    "dev": "bun run ./src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "bun run build:cli",
+    "build:cli": "bun scripts/build.ts",
+    "verify": "bun run typecheck && bun run test && bun run build"
+  },
+  "resolutions": {
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112"
+  }
+}
