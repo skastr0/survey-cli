@@ -27,15 +27,21 @@ export type UnifiedFetchInput = typeof UnifiedFetchInput.Type
 const extractContent = (payload: unknown): { content?: string; raw: unknown } => {
   if (!payload || typeof payload !== "object") return { raw: payload }
   const record = payload as Record<string, unknown>
+  // firecrawl/keenable nest content under `data`
+  const candidate =
+    record.data && typeof record.data === "object" && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : record
   for (const key of ["markdown", "content", "text", "body", "html"]) {
-    const value = record[key]
+    const value = candidate[key] ?? record[key]
     if (typeof value === "string" && value.length > 0) {
       return { content: value, raw: payload }
     }
   }
   // exa contents returns { results: [{ text, ... }] }
-  if (Array.isArray(record.results)) {
-    const first = record.results[0] as Record<string, unknown> | undefined
+  const results = Array.isArray(candidate.results) ? candidate.results : record.results
+  if (Array.isArray(results)) {
+    const first = results[0] as Record<string, unknown> | undefined
     if (first && typeof first.text === "string") {
       return { content: first.text, raw: payload }
     }

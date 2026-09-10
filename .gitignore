@@ -2,3 +2,10 @@ node_modules
 dist
 *.tsbuildinfo
 .DS_Store
+
+# built binaries staged into npm platform packages (built by CI, never committed)
+packages/npm/survey-darwin-arm64/bin/
+packages/npm/survey-darwin-x64/bin/
+packages/npm/survey-linux-arm64/bin/
+packages/npm/survey-linux-x64/bin/
+packages/npm/*/LICENSE

@@ -59,3 +59,18 @@ bun run verify
 ```
 
 Do not call live provider APIs from default tests.
+
+## Testing Conventions (learned during provider ports)
+
+- vitest runs under **Node**, not Bun — `bun:sqlite` must be lazily imported
+  (`await import("bun:sqlite")`) and `Bun.env` must be shimmed in tests
+  (`globalThis.Bun = { env: process.env }`).
+- `Store` is stubbed with in-memory `Store.of(...)` via `vi.mock` or
+  `Layer.succeed` — real sqlite is exercised by binary smoke tests.
+- `it.effect` installs a virtual test clock: `Effect.sleep`-based polling and
+  timeouts never fire. Use `it.live` for wait/timeout tests.
+- Mock provider APIs with `<PROVIDER>_API_BASE_URL` + `node:http` stub servers —
+  never hit live APIs in tests.
+- `Result` fields: `Success.success` / `Failure.failure` (not `.value`).
+- Generics only referenced through optional params infer as `unknown` and leak
+  into a Command's env channel — give them `= never` defaults.
