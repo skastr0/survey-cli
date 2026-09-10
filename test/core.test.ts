@@ -59,7 +59,7 @@ describe("loadJsonInput", () => {
     Effect.gen(function* () {
       const value = yield* loadJsonInput(S, '{"a": 1}')
       expect(value.a).toBe(1)
-    }),
+    }).pipe(Effect.provide(TestPaths)),
   )
 
   it.effect("rejects invalid JSON with JsonInputError", () =>
@@ -69,7 +69,7 @@ describe("loadJsonInput", () => {
       if (result._tag === "Failure") {
         expect(result.failure._tag).toBe("JsonInputError")
       }
-    }),
+    }).pipe(Effect.provide(TestPaths)),
   )
 
   it.effect("loads @file", () =>
@@ -83,7 +83,7 @@ describe("loadJsonInput", () => {
     Effect.gen(function* () {
       const result = yield* Effect.result(loadJsonInput(S, "  "))
       expect(result._tag).toBe("Failure")
-    }),
+    }).pipe(Effect.provide(TestPaths)),
   )
 })
 

@@ -23,7 +23,7 @@ const platformPackages = [
 
 const run = async (label: string, command: ReadonlyArray<string>): Promise<void> => {
   console.log(`\n${label}`)
-  const proc = Bun.spawn(command, {
+  const proc = Bun.spawn([...command], {
     cwd: REPO_ROOT,
     stdout: "inherit",
     stderr: "inherit",
