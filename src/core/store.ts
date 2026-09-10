@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite"
+import type { Database } from "bun:sqlite"
 import { Context, Effect, Layer } from "effect"
 
 import { StoreError } from "./errors"
@@ -54,13 +54,16 @@ export const canonicalizeUrl = (rawUrl: string): string => {
     const url = new URL(rawUrl)
     url.hash = ""
     url.hostname = url.hostname.toLowerCase().replace(/^www\./, "")
+    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.slice(0, -1)
+    }
     for (const key of [...url.searchParams.keys()]) {
       if (TRACKING_PARAMS.has(key.toLowerCase())) {
         url.searchParams.delete(key)
       }
     }
     const out = url.toString()
-    return out.endsWith("/") ? out.slice(0, -1) : out
+    return out.endsWith("/") && url.pathname === "/" ? out.slice(0, -1) : out
   } catch {
     return rawUrl.trim()
   }
@@ -152,8 +155,9 @@ export class Store extends Context.Service<Store, {
     Store,
     Effect.gen(function* () {
       const path = yield* storePath
-      const db = yield* Effect.try({
-        try: () => {
+      const db = yield* Effect.tryPromise({
+        try: async () => {
+          const { Database } = await import("bun:sqlite")
           const database = new Database(path, { create: true })
           database.exec("PRAGMA journal_mode = WAL")
           database.exec(MIGRATIONS)
