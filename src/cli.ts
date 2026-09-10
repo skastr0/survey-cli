@@ -11,10 +11,24 @@ import {
   examplesCommand,
   schemaCommand,
 } from "./commands/discovery"
+import { extractCommand } from "./capabilities/extract"
+import { fetchCommand } from "./capabilities/fetch"
+import { monitorCommand } from "./capabilities/monitor"
+import { researchCommand } from "./capabilities/research"
+import { runsCommand } from "./capabilities/runs"
+import { searchCommand } from "./capabilities/search"
+import { sourcesCommand } from "./capabilities/sources"
+import { sqlCommand } from "./capabilities/sql"
+import { verifyCommand } from "./capabilities/verify"
 import { CLI_NAME, CLI_VERSION } from "./core/constants"
 import { HttpClientLayer } from "./core/http"
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output"
 import { Store } from "./core/store"
+import { exaCommand } from "./providers/exa"
+import { firecrawlCommand } from "./providers/firecrawl"
+import { keenableCommand } from "./providers/keenable"
+import { llamaCommand } from "./providers/llama"
+import { parallelCommand } from "./providers/parallel"
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription("Consolidated researcher toolkit CLI — one binary, five providers, cross-provider research"),
@@ -24,6 +38,20 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     doctorCommand,
     examplesCommand,
     schemaCommand,
+    exaCommand,
+    firecrawlCommand,
+    parallelCommand,
+    keenableCommand,
+    llamaCommand,
+    searchCommand,
+    fetchCommand,
+    extractCommand,
+    researchCommand,
+    verifyCommand,
+    runsCommand,
+    sourcesCommand,
+    monitorCommand,
+    sqlCommand,
   ]),
 )
 

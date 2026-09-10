@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 
-import type { ProviderName } from "./registry"
 import { Store, type RunStatus } from "./store"
 
 const newId = () =>
@@ -11,7 +10,7 @@ const newId = () =>
  * failure must never fail the provider call itself.
  */
 export const recordRun = (options: {
-  readonly provider: ProviderName
+  readonly provider: string
   readonly kind: string
   readonly remoteId?: string | undefined
   readonly status: RunStatus
@@ -53,7 +52,7 @@ export interface SourceLike {
  * store failures never fail the command.
  */
 export const recordSources = (
-  provider: ProviderName,
+  provider: string,
   items: ReadonlyArray<SourceLike>,
   runId?: string,
 ) =>

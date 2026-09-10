@@ -155,7 +155,7 @@ const withOutput = (command: string, output: "inline" | "artifact" | "auto") =>
  * Command with required JSON input plus the --concurrency flag used by the
  * object-or-array local batch commands (scrape, map, search, parse).
  */
-const makeLocalBatchCommand = <S extends Schema.Constraint, VE, VR, E, R, AR>(options: {
+const makeLocalBatchCommand = <S extends Schema.Constraint, VE, VR, E, R, AR = never>(options: {
   readonly name: string
   readonly commandName: string
   readonly description: string
