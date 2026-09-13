@@ -72,3 +72,7 @@ jobs:
             echo "Publishing ${package_name}@${package_version} from ${package_dir}"
             npm publish "./${package_dir}" --access public --provenance --loglevel verbose
           done
+
+      - name: npm debug log on failure
+        if: failure()
+        run: tail -n 80 "$HOME/.npm/_logs/"*-debug-0.log || true
