@@ -1,5 +1,5 @@
 export const CLI_NAME = "survey"
-export const CLI_VERSION = "0.1.0"
+export const CLI_VERSION = "0.1.1"
 export const CLI_DATA_DIR_NAME = "survey"
 export const CLI_HOME_ENV = "SURVEY_HOME"
 export const ARTIFACT_DIR_ENV = "SURVEY_ARTIFACT_DIR"
