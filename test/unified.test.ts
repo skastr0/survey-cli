@@ -71,4 +71,30 @@ describe("mergeResults", () => {
     expect(merged.length).toBe(1)
     expect(merged[0]?.providers).toEqual(["parallel"])
   })
+
+  it("fuses by reciprocal rank, not raw cross-provider scores", () => {
+    const outcomes = [
+      {
+        provider: "exa" as const,
+        ok: true,
+        results: [row("https://a.com", { score: 0.99 }), row("https://b.com", { score: 0.98 })],
+      },
+      {
+        provider: "parallel" as const,
+        ok: true,
+        results: [row("https://b.com", { score: 0.1 }), row("https://c.com", { score: 0.05 })],
+      },
+    ]
+    const merged = mergeResults(outcomes)
+    expect(merged.map((r) => r.canonical_url)).toEqual(["https://b.com", "https://a.com", "https://c.com"])
+    expect(merged[0]?.ranks).toEqual({ exa: 2, parallel: 1 })
+    expect(merged[0]?.fusion_score).toBeCloseTo(1 / 62 + 1 / 61, 6)
+  })
+
+  it("counts only the first occurrence of a URL within one provider", () => {
+    const merged = mergeResults([
+      { provider: "exa" as const, ok: true, results: [row("https://a.com"), row("https://a.com/"), row("https://b.com")] },
+    ])
+    expect(merged.find((r) => r.canonical_url === "https://b.com")?.ranks).toEqual({ exa: 2 })
+  })
 })
