@@ -12,6 +12,7 @@ import { exaApi } from "../providers/exa"
 import { parallelApi } from "../providers/parallel"
 import { Domain, wantsPapers } from "./academic"
 import { papers } from "./papers"
+import { corpusRef, rememberReport, shortHash } from "./report"
 
 const VERIFY_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel"]
 
@@ -23,6 +24,9 @@ export const VerifyInput = Schema.Struct({
   tier: Schema.optional(Tier.annotate({
     description: "free: skip keyed answer/task providers; rely on the keyless paper index. any (default).",
   })),
+  /** Remember the verification report in the corpus as kind "report" (default true). */
+  store: Schema.optional(Schema.Boolean),
+  tags: Schema.optional(Schema.Array(Schema.String)),
 })
 export type VerifyInput = typeof VerifyInput.Type
 
@@ -125,6 +129,28 @@ const collectUrls = (value: unknown): Array<string> => {
   return [...urls]
 }
 
+const verifyMarkdown = (
+  claim: string,
+  confidence: string,
+  verdicts: ReadonlyArray<Verdict>,
+  shared: ReadonlyArray<{ canonical_url: string; provider_count: number }>,
+) => {
+  const sections = [`# Verify: ${claim}`, `Confidence: **${confidence}**`]
+  for (const verdict of verdicts) {
+    sections.push(
+      verdict.ok
+        ? `## ${verdict.provider}\n\n${verdict.answer ?? "(no answer text)"}${
+            verdict.sources.length > 0 ? `\n\nSources:\n${verdict.sources.map((url) => `- ${url}`).join("\n")}` : ""
+          }`
+        : `## ${verdict.provider} (failed)`,
+    )
+  }
+  if (shared.length > 0) {
+    sections.push(`## Shared sources\n\n${shared.map((s) => `- ${s.canonical_url} (${s.provider_count} providers)`).join("\n")}`)
+  }
+  return sections.join("\n\n")
+}
+
 export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
   const { eligible: routed, skipped } = yield* routeProviders({
     requested: input.providers ?? VERIFY_ADAPTERS,
@@ -189,8 +215,28 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
           ? "high"
           : "medium"
 
+  const reportUrl = `survey://verify/${shortHash(input.claim)}`
+  const remembered =
+    input.store === false || okVerdicts.length === 0
+      ? undefined
+      : yield* rememberReport({
+          url: reportUrl,
+          title: `Verify: ${input.claim}`,
+          tags: input.tags,
+          content: verifyMarkdown(input.claim, confidence, verdicts, sharedSources),
+          metadata: {
+            claim: input.claim,
+            confidence,
+            domain: academic ? "academic" : "web",
+            providers_attempted: verdicts.map((v) => v.provider),
+            providers_succeeded: okVerdicts.map((v) => v.provider),
+            shared_sources: sharedSources.length,
+          },
+        })
+
   return {
     claim: input.claim,
+    ...corpusRef(remembered, reportUrl),
     verdicts,
     shared_sources: sharedSources,
     corroborated_providers: okVerdicts.length,
@@ -217,6 +263,11 @@ registerContract({
     {
       name: "fact check",
       input: { claim: "Bun 1.3 added support for compiling to bytecode" },
+    },
+    {
+      name: "do not remember the report",
+      description: "Verification reports are remembered as kind report at survey://verify/<claim hash> unless store is false; the response carries corpus {id, version, changed, created, url}.",
+      input: { claim: "Bun 1.3 added support for compiling to bytecode", store: false, tags: ["fact-check"] },
     },
     {
       name: "academic claim against papers",

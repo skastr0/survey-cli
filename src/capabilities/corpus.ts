@@ -4,7 +4,10 @@ import { Effect, FileSystem, Path, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { makeBatchJsonCommand, makeJsonCommand } from "../core/command"
-import { Corpus, type DocumentFilter, type DocumentRecord, toFtsQuery } from "../core/corpus"
+import { Corpus, type DocumentFilter, type DocumentRecord, type DocumentSummary, toFtsQuery } from "../core/corpus"
+import { access } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import { setExitCode, toErrorDetails } from "../core/output"
 import { diffLines } from "../core/diff"
 import { registerContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
@@ -76,6 +79,125 @@ export const CorpusListInput = Schema.Struct({
 })
 
 export const CorpusRefInput = Schema.Struct(RefFields)
+
+export const CorpusPruneInput = Schema.Struct({
+  /** Remove documents whose file:// source no longer exists (default true). */
+  missing_files: Schema.optional(Schema.Boolean),
+  /** Remove documents last updated before now - duration (`30d`, `12h`, `2w`, `90m`) or before an ISO date. */
+  older_than: Schema.optional(Schema.String),
+  /** Scope filters; they restrict every criterion. */
+  kind: Schema.optional(Schema.String),
+  tag: Schema.optional(Schema.String),
+  provider: Schema.optional(Schema.String),
+  domain: Schema.optional(Schema.String),
+  /** Preview only (default true). Pass false to actually remove. */
+  dry_run: Schema.optional(Schema.Boolean),
+  /** Safety cap on documents removed in one call (default 1000). */
+  max_remove: Schema.optional(Schema.Int),
+})
+
+const PRUNE_PAGE = 500
+
+const DURATION_MS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }
+
+/** `30d` / `12h` / ISO date -> cutoff epoch ms. */
+export const parseCutoff = (value: string, now: number = Date.now()) => {
+  const match = /^(\d+)\s*([smhdw])$/i.exec(value.trim())
+  if (match) return now - Number(match[1]) * DURATION_MS[match[2]!.toLowerCase()]!
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+const localPathOf = (url: string) => {
+  if (!url.startsWith("file://")) return undefined
+  try {
+    return fileURLToPath(url)
+  } catch {
+    return undefined
+  }
+}
+
+export const corpusPrune = (input: typeof CorpusPruneInput.Type) =>
+  Effect.gen(function* () {
+    const checkMissing = input.missing_files ?? true
+    const cutoff = input.older_than === undefined ? undefined : parseCutoff(input.older_than)
+    if (input.older_than !== undefined && cutoff === undefined) {
+      return yield* new CommandInputError({
+        field: "older_than",
+        message: `Cannot parse "${input.older_than}". Use a duration like 30d, 12h, 2w, 90m or an ISO date.`,
+      })
+    }
+    if (!checkMissing && cutoff === undefined) {
+      return yield* new CommandInputError({
+        field: "missing_files",
+        message: "Nothing to prune by: enable missing_files or set older_than.",
+      })
+    }
+    const maxRemove = input.max_remove ?? 1000
+    const dryRun = input.dry_run !== false
+    const corpus = yield* Corpus
+    const filter = filterOf(input)
+
+    const candidates: Array<{ doc: DocumentSummary; reasons: Array<string> }> = []
+    let scanned = 0
+    for (let offset = 0; ; offset += PRUNE_PAGE) {
+      const page = yield* corpus.list({ limit: PRUNE_PAGE, offset, filter })
+      scanned += page.length
+      for (const doc of page) {
+        const reasons: Array<string> = []
+        if (checkMissing) {
+          const path = localPathOf(doc.url)
+          if (path !== undefined && !(yield* Effect.promise(() => access(path).then(() => true, () => false)))) {
+            reasons.push("missing_file")
+          }
+        }
+        if (cutoff !== undefined && Date.parse(doc.updated_at) < cutoff) reasons.push("older_than")
+        if (reasons.length > 0) candidates.push({ doc, reasons })
+      }
+      if (page.length < PRUNE_PAGE) break
+    }
+
+    const selected = candidates.slice(0, maxRemove)
+    const documents = yield* Effect.forEach(selected, ({ doc, reasons }) =>
+      Effect.gen(function* () {
+        const base = {
+          id: doc.id,
+          url: doc.url,
+          title: doc.title,
+          kind: doc.kind,
+          updated_at: doc.updated_at,
+          reasons,
+        }
+        if (dryRun) return { ...base, status: "would_remove" as const }
+        return yield* corpus.remove({ id: doc.id }).pipe(
+          Effect.map((n) => ({ ...base, status: n > 0 ? ("removed" as const) : ("missing" as const) })),
+          Effect.catch((error) =>
+            Effect.succeed({ ...base, status: "failed" as const, error: toErrorDetails(error) }),
+          ),
+        )
+      }),
+    )
+
+    const failed = documents.filter((d) => d.status === "failed").length
+    if (failed > 0) yield* setExitCode(1)
+    return {
+      dry_run: dryRun,
+      criteria: {
+        missing_files: checkMissing,
+        older_than: input.older_than ?? null,
+        cutoff: cutoff === undefined ? null : new Date(cutoff).toISOString(),
+        kind: input.kind ?? null,
+        tag: input.tag ?? null,
+      },
+      scanned,
+      matched: candidates.length,
+      truncated: candidates.length > selected.length,
+      removed: documents.filter((d) => d.status === "removed").length,
+      would_remove: documents.filter((d) => d.status === "would_remove").length,
+      failed,
+      documents,
+    }
+  })
 
 export const CorpusDiffInput = Schema.Struct({
   ...RefFields,
@@ -513,6 +635,14 @@ const corpusRemoveCommand = makeBatchJsonCommand({
     }),
 })
 
+const corpusPruneCommand = makeJsonCommand({
+  name: "prune",
+  commandName: "corpus prune",
+  description: "Remove documents whose file:// source is gone and/or that are older than a cutoff. dry_run defaults to true.",
+  schema: CorpusPruneInput,
+  run: corpusPrune,
+})
+
 const corpusStatsCommand = makeJsonCommand({
   name: "stats",
   commandName: "corpus stats",
@@ -539,6 +669,7 @@ export const corpusCommand = Command.make("corpus").pipe(
     corpusVersionsCommand,
     corpusDiffCommand,
     corpusRemoveCommand,
+    corpusPruneCommand,
     corpusStatsCommand,
   ]),
 )
@@ -620,6 +751,18 @@ registerContracts([
     inputSchema: CorpusRefInput,
     batch: true,
     examples: [{ name: "by id", input: { id: 1 } }],
+  },
+  {
+    command: "corpus prune",
+    description:
+      "Remove stale documents: file:// sources that no longer exist (missing_files, default on) and/or documents last updated before older_than (30d, 12h, 2w, or an ISO date), scoped by kind/tag/provider/domain. dry_run is true unless you pass false; max_remove caps one call. Returns per-document reasons and status.",
+    inputSchema: CorpusPruneInput,
+    examples: [
+      { name: "preview documents whose source file vanished", input: {} },
+      { name: "actually remove them", input: { dry_run: false } },
+      { name: "old web pages", input: { older_than: "90d", kind: "web", missing_files: false } },
+      { name: "old tagged reports, for real", input: { older_than: "2w", kind: "report", tag: "q3", dry_run: false } },
+    ],
   },
   {
     command: "corpus stats",

@@ -14,6 +14,7 @@ import { parallelApi } from "../providers/parallel"
 import { keenableApi } from "../providers/keenable"
 import { firecrawlApi } from "../providers/firecrawl"
 import { tinyfishApi } from "../providers/tinyfish"
+import { unifiedFetch } from "./fetch"
 
 const SearchProviders = Schema.Array(ProviderName)
 const SEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "keenable", "firecrawl", "tinyfish"]
@@ -26,6 +27,15 @@ export const UnifiedSearchInput = Schema.Struct({
   tier: Schema.optional(Tier.annotate({
     description: "free: only keyless/local access (no account credits). any (default): keyed where configured.",
   })),
+  /** Read the top n fused results into the corpus after searching (default 0 = search only). */
+  read_top: Schema.optional(Schema.Int),
+  read_concurrency: Schema.optional(Schema.Int),
+  /** Reuse a corpus copy younger than this instead of fetching again. */
+  max_age_ms: Schema.optional(Schema.Int),
+  /** Fetch provider order for the read step (default: the unified fetch order). */
+  read_providers: Schema.optional(Schema.Array(ProviderName)),
+  /** Corpus tags for the documents read. */
+  tags: Schema.optional(Schema.Array(Schema.String)),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -83,6 +93,56 @@ const runProvider = (
     ),
   ) as Effect.Effect<ProviderOutcome, never, AppEnv>
 
+const DEFAULT_READ_CONCURRENCY = 3
+
+/** Fetch the top `read_top` results into the corpus; each row gets `corpus` or `read_error`. */
+const readTop = (results: ReadonlyArray<NormalizedResult>, input: UnifiedSearchInput) =>
+  Effect.gen(function* () {
+    const count = Math.max(0, input.read_top ?? 0)
+    if (count === 0) return results
+    const concurrency = Math.max(1, input.read_concurrency ?? DEFAULT_READ_CONCURRENCY)
+
+    const reads = yield* Effect.forEach(
+      results.slice(0, count),
+      (result) =>
+        Effect.result(
+          unifiedFetch({
+            url: result.url,
+            ...(input.tier ? { tier: input.tier } : {}),
+            ...(input.read_providers ? { providers: input.read_providers } : {}),
+            ...(input.max_age_ms !== undefined ? { max_age_ms: input.max_age_ms } : {}),
+            ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
+            ...(input.tags ? { tags: input.tags } : {}),
+          }),
+        ),
+      { concurrency },
+    )
+
+    return results.map((result, index) => {
+      const read = reads[index]
+      if (read === undefined) return result
+      if (read._tag === "Failure") return { ...result, read_error: toErrorDetails(read.failure) }
+      const fetched = read.success
+      return {
+        ...result,
+        read: {
+          provider: fetched.provider,
+          cached: fetched.cached,
+          chars: fetched.content?.length ?? 0,
+        },
+        ...("corpus" in fetched && fetched.corpus
+          ? {
+              corpus: {
+                id: fetched.corpus.id,
+                version: fetched.corpus.version,
+                changed: fetched.corpus.changed,
+              },
+            }
+          : {}),
+      }
+    })
+  })
+
 export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
   input: UnifiedSearchInput,
 ) {
@@ -106,7 +166,8 @@ export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
     }
   }
 
-  const results = mergeResults(outcomes)
+  const merged = mergeResults(outcomes)
+  const results = yield* readTop(merged, input)
 
   return {
     query: input.query,
@@ -150,6 +211,11 @@ registerContract({
       name: "free tier only",
       description: "Route only to keyless endpoints; never spends account credits",
       input: { query: "bun sqlite wal mode", tier: "free" },
+    },
+    {
+      name: "search and read the top 3 into the corpus",
+      description: "One call = search + read: the top fused results are fetched (tier/read_providers/max_age_ms respected) and stored; each carries corpus {id, version, changed} or read_error.",
+      input: { query: "bun sqlite fts5 bm25", read_top: 3, tier: "free", max_age_ms: 86400000, tags: ["sqlite"] },
     },
     {
       name: "tinyfish news override",
