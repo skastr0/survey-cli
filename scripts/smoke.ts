@@ -88,12 +88,16 @@ try {
   const missingExamples = commands.filter((command) => !withExamples.has(command))
   check("every command has examples", missingExamples.length === 0, missingExamples)
 
+  // Bounded: ~200 parallel binaries starved each other right after a build.
   const helpFailures: Array<string> = []
+  const queue = [...commands]
   await Promise.all(
-    commands.map(async (command) => {
-      const help = await run([...command.split(" "), "--help"])
-      if (help.exitCode !== 0 || !help.stdout.includes("USAGE") || !help.stdout.includes("CONTRACT")) {
-        helpFailures.push(command)
+    Array.from({ length: 8 }, async () => {
+      for (let command = queue.shift(); command !== undefined; command = queue.shift()) {
+        const help = await run([...command.split(" "), "--help"])
+        if (help.exitCode !== 0 || !help.stdout.includes("USAGE") || !help.stdout.includes("CONTRACT")) {
+          helpFailures.push(command)
+        }
       }
     }),
   )
