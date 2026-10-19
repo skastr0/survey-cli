@@ -9,8 +9,9 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [0.1.7] - 2026-10-19
 
-First release since 0.1.1. Versions 0.1.2–0.1.6 were bumped in the workspace
-but never tagged or published.
+First release since 0.1.1. Versions 0.1.2–0.1.5 were never tagged; v0.1.6
+was tagged but its publish stopped on a CI test failure, so nothing between
+0.1.1 and 0.1.7 reached npm.
 
 ### Added
 
