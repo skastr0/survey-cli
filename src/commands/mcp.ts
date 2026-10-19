@@ -11,6 +11,8 @@ import { buildTools, DEFAULT_EXCLUDES, selfCommand, serveStdio } from "../mcp/se
 export const McpFilterInput = Schema.Struct({
   include: Schema.optional(Schema.Array(Schema.String)),
   exclude: Schema.optional(Schema.Array(Schema.String)),
+  /** Per tool-call ceiling for `mcp serve` (default 10 minutes); ignored by `mcp tools`. */
+  timeout_ms: Schema.optional(Schema.Int),
 })
 
 export const McpConfigInput = Schema.Struct({
@@ -25,7 +27,7 @@ const mcpServeCommand = Command.make(
   ({ input }) =>
     Effect.gen(function* () {
       const filter = yield* loadJsonInput(McpFilterInput, Option.getOrElse(input, () => "{}"))
-      yield* Effect.promise(() => serveStdio({ tools: buildTools(filter) }))
+      yield* Effect.promise(() => serveStdio({ tools: buildTools(filter), timeoutMs: filter.timeout_ms }))
     }).pipe(
       // Protocol channel is stdout; failures before serving still get an envelope.
       Effect.catch((error) => executeJsonCommand("mcp serve", Effect.fail(error))),

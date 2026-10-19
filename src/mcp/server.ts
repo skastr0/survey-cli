@@ -101,9 +101,27 @@ export const buildTools = (filter: ToolFilter = {}): ReadonlyArray<McpTool> => {
     }))
 }
 
-export const callTool = async (tool: McpTool, args: unknown, exec: Executor) => {
+/** Default ceiling for one tool call; long provider jobs should use start/check orbits instead. */
+export const DEFAULT_TOOL_TIMEOUT_MS = 10 * 60 * 1000
+
+export const callTool = async (tool: McpTool, args: unknown, exec: Executor, timeoutMs = DEFAULT_TOOL_TIMEOUT_MS) => {
   const payload = JSON.stringify(args ?? {})
-  const envelope = envelopeOf(await exec(tool.argv, payload))
+  const signal = AbortSignal.timeout(timeoutMs)
+  const result = await exec(tool.argv, payload, signal)
+  const envelope = signal.aborted
+    ? {
+        ok: false,
+        command: tool.argv.join(" "),
+        error: {
+          type: "TimeoutError",
+          message: `${tool.argv.join(" ")} exceeded the MCP tool timeout of ${timeoutMs}ms`,
+          details: {
+            retryable: true,
+            hint: "Use the command's start/check/wait orbit for long jobs, or raise timeout_ms on mcp serve.",
+          },
+        },
+      }
+    : envelopeOf(result)
   const isError = !envelope.ok
   return {
     content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
@@ -125,7 +143,11 @@ const rpcError = (id: JsonRpcRequest["id"], code: number, message: string) => ({
   error: { code, message },
 })
 
-export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>; readonly exec: Executor }) => {
+export const createHandler = (options: {
+  readonly tools: ReadonlyArray<McpTool>
+  readonly exec: Executor
+  readonly timeoutMs?: number | undefined
+}) => {
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]))
   const listed = options.tools.map(({ argv: _argv, ...tool }) => tool)
 
@@ -169,7 +191,7 @@ export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>;
           return rpcError(id, -32602, `Unknown tool: ${name}`)
         }
         try {
-          const result = await callTool(tool, params?.arguments, options.exec)
+          const result = await callTool(tool, params?.arguments, options.exec, options.timeoutMs)
           return { jsonrpc: "2.0", id, result }
         } catch (error) {
           return {
@@ -189,9 +211,17 @@ export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>;
 }
 
 /** Serve newline-delimited JSON-RPC over stdio until stdin closes. */
-export const serveStdio = (options: { readonly tools: ReadonlyArray<McpTool>; readonly exec?: Executor }) =>
+export const serveStdio = (options: {
+  readonly tools: ReadonlyArray<McpTool>
+  readonly exec?: Executor
+  readonly timeoutMs?: number | undefined
+}) =>
   new Promise<void>((resolve) => {
-    const handle = createHandler({ tools: options.tools, exec: options.exec ?? spawnExecutor })
+    const handle = createHandler({
+      tools: options.tools,
+      exec: options.exec ?? spawnExecutor,
+      timeoutMs: options.timeoutMs,
+    })
     const reader = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY })
     const pending = new Set<Promise<void>>()
     const write = (value: unknown) => {

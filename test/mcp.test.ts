@@ -6,7 +6,7 @@ import "../src/capabilities/corpus"
 import "../src/capabilities/sources"
 import "../src/commands/auth"
 import { stripNullBranches } from "../src/core/discovery"
-import { buildTools, createHandler, type Executor, toolName } from "../src/mcp/server"
+import { buildTools, callTool, createHandler, type Executor, toolName } from "../src/mcp/server"
 
 const calls: Array<{ argv: ReadonlyArray<string>; input: string | undefined }> = []
 const fakeExec: Executor = async (argv, input) => {
@@ -127,5 +127,23 @@ describe("MCP handler", () => {
     expect(await handle(null)).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
     expect(await handle([{ jsonrpc: "2.0", id: 1, method: "ping" }])).toMatchObject({ error: { code: -32600 } })
     expect(await handle({ jsonrpc: "2.0", id: 1, result: {} })).toBeUndefined()
+  })
+})
+
+describe("MCP tool timeout", () => {
+  it("aborts the child and returns a retryable TimeoutError envelope", async () => {
+    let aborted = false
+    const slowExec: Executor = (_argv, _input, signal) =>
+      new Promise((resolve) => {
+        signal?.addEventListener("abort", () => {
+          aborted = true
+          resolve({ exitCode: 143, stdout: "", stderr: "" })
+        })
+      })
+    const [tool] = buildTools({ include: ["corpus stats"] })
+    const result = await callTool(tool!, {}, slowExec, 20)
+    expect(aborted).toBe(true)
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toMatchObject({ error: { type: "TimeoutError", details: { retryable: true } } })
   })
 })
