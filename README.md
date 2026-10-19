@@ -91,6 +91,10 @@ survey corpus search '{"query": "rate limit", "domain": "example.com"}'   # BM25
 survey corpus grep '{"pattern": "\\$\\d+/mo", "regex": true, "context": 1}'
 survey corpus read '{"id": 12, "lines": "40-120"}'
 survey corpus diff '{"url": "https://example.com/pricing"}'             # what changed since last fetch
+survey corpus links '{"id": 12, "new_only": true}'                      # outbound URLs not read yet
+survey corpus tag '{"ids": [12], "add": ["relevant"]}'
+survey corpus export '{"format": "bundle", "tag": "relevant"}'          # markdown bundle; jsonl round-trips via corpus import
+survey corpus prune '{"older_than": "30d"}'                              # dry run unless "dry_run": false
 survey sql '{"query": "SELECT domain, COUNT(*) FROM documents GROUP BY 1", "local": true}'
 ```
 

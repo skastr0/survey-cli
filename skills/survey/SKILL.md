@@ -18,17 +18,19 @@ right now (keyed / public / local / unavailable).
 
 | Need | Command |
 |---|---|
-| Find sources, want agreement signal | `search` — results carry `providers[]`, per-provider `ranks`, `fusion_score` (RRF) |
+| Find sources, want agreement signal | `search` — results carry `providers[]`, per-provider `ranks`, `fusion_score` (RRF); `read_top: n` also reads the top n into the corpus |
 | Judge which provider is best for a query | `compare` |
 | Read one URL | `fetch` (stores into the corpus; `max_age_ms` reuses a fresh copy) |
 | Papers (arXiv, PubMed, bioRxiv, medRxiv) | `papers` — canonical `arxiv:`/`pmid:`/`doi:` ids, passage reads with `question` |
 | PDF / DOCX / PPTX / XLSX / EPUB → Markdown | `convert` (local first; scanned PDFs escalate to LlamaCloud or report `needs_ocr`) |
 | Structured extraction | `extract` |
-| Long multi-source report | `research` (async provider agents; citation intersection) |
-| Check a claim | `verify` |
+| Long multi-source report | `research start` → `research check` / `wait` (non-blocking); `research` blocks. Reports land in the corpus |
+| Check a claim | `verify` — confidence counts `independent_sources` (same page/domain/syndicated copy = one source) |
 | Re-read / search what was already fetched | `corpus search` → `corpus read {id, lines}`; `corpus grep` |
 | Detect page changes | `watch` (tag-based watch list, line diffs) or `corpus diff` |
-| Several steps in one call | `pipe` |
+| Follow links from a page you read | `corpus links {"id": 7, "new_only": true}` → `urls[]` for `pipe` foreach |
+| Curate / hand off a corpus | `corpus tag`, `corpus export {"format": "bundle"}` → `corpus import`, `corpus prune` (dry run by default) |
+| Several steps in one call | `pipe` (exit 1 when any step failed; per-step `ok`) |
 | Ad-hoc questions over the ledger | `sql {"local": true, "query": "SELECT … FROM documents | sources | runs"}` |
 
 ## Cost discipline
@@ -70,7 +72,8 @@ Steps reference earlier envelopes: `$.<id>.data.path[0]`, `[*]`, `[a:b]`, `$item
 
 `survey mcp serve` mounts every command as a tool (`corpus search` → `corpus_search`).
 `survey mcp config '{"client": "claude-code"}'` prints the install snippet; pass
-`include`/`exclude` globs to expose a subset.
+`include`/`exclude` globs to expose a subset; `timeout_ms` caps each tool call (default 10 min,
+then a retryable `TimeoutError`).
 
 ## Reading results
 

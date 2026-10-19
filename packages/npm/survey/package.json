@@ -2,7 +2,7 @@
   "name": "@skastr0/survey",
   "version": "0.1.5",
   "type": "module",
-  "description": "Consolidated researcher toolkit CLI — Exa, Firecrawl, Parallel, Keenable, LlamaCloud in one JSON-first binary.",
+  "description": "Agent-first research CLI — Exa, Firecrawl, Parallel, Keenable, TinyFish, LlamaCloud plus local PDF/doc tools, a searchable corpus, pipelines and an MCP server in one JSON-first binary. Free tiers work without keys.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -23,6 +23,10 @@
     "parallel",
     "keenable",
     "llamacloud",
+    "tinyfish",
+    "mcp",
+    "agents",
+    "pdf",
     "bun"
   ],
   "publishConfig": {
