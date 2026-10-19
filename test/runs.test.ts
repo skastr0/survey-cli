@@ -56,11 +56,11 @@ const makeStore = (initial: ReadonlyArray<Pick<RunRecord, "id" | "provider" | "k
     ]),
   )
   const service = Store.of({
-    getRun: (id) => Effect.succeed(runs.get(id)),
-    findRunByRemote: (provider, remoteId) =>
+    getRun: (id: string) => Effect.succeed(runs.get(id)),
+    findRunByRemote: (provider: string, remoteId: string) =>
       Effect.succeed([...runs.values()].find((r) => r.provider === provider && r.remote_id === remoteId)),
     listRuns: () => Effect.succeed([...runs.values()]),
-    updateRun: (id, patch) =>
+    updateRun: (id: string, patch: { status?: RunRecord["status"] }) =>
       Effect.sync(() => {
         const existing = runs.get(id)
         if (existing) runs.set(id, { ...existing, status: patch.status ?? existing.status })
