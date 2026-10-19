@@ -1,6 +1,6 @@
 {
   "name": "@skastr0/survey-linux-arm64",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "survey standalone CLI binary for Linux arm64.",
   "license": "MIT",

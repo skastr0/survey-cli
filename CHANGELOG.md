@@ -7,9 +7,9 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [Unreleased]
 
-## [0.1.6] - 2026-10-19
+## [0.1.7] - 2026-10-19
 
-First release since 0.1.1. Versions 0.1.2–0.1.5 were bumped in the workspace
+First release since 0.1.1. Versions 0.1.2–0.1.6 were bumped in the workspace
 but never tagged or published.
 
 ### Added

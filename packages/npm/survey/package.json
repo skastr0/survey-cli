@@ -1,6 +1,6 @@
 {
   "name": "@skastr0/survey",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "Agent-first research CLI — Exa, Firecrawl, Parallel, Keenable, TinyFish, LlamaCloud plus local PDF/doc tools, a searchable corpus, pipelines and an MCP server in one JSON-first binary. Free tiers work without keys.",
   "license": "MIT",
@@ -44,10 +44,10 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@skastr0/survey-darwin-arm64": "0.1.6",
-    "@skastr0/survey-darwin-x64": "0.1.6",
-    "@skastr0/survey-linux-arm64": "0.1.6",
-    "@skastr0/survey-linux-x64": "0.1.6",
+    "@skastr0/survey-darwin-arm64": "0.1.7",
+    "@skastr0/survey-darwin-x64": "0.1.7",
+    "@skastr0/survey-linux-arm64": "0.1.7",
+    "@skastr0/survey-linux-x64": "0.1.7",
     "@firecrawl/anydoc": "0.2.4",
     "@firecrawl/pdf-inspector": "1.25.2"
   }
