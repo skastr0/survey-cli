@@ -1,4 +1,5 @@
 import { Effect, Path, Schema } from "effect"
+import { dirname } from "node:path"
 
 import { LocalToolError, LocalToolUnavailableError } from "../core/errors"
 import { surveyHome } from "../core/paths"
@@ -15,6 +16,8 @@ export type LocalToolName = typeof LocalToolName.Type
 export type LocalToolMode = "node_module" | "path_cli" | "unavailable"
 
 export const LOCAL_TOOLS_DIR_ENV = "SURVEY_LOCAL_TOOLS_DIR"
+/** Set by the npm wrapper (bin/survey.js) to its own package directory. */
+export const NPM_PACKAGE_DIR_ENV = "SURVEY_NPM_PACKAGE_DIR"
 
 export interface LocalToolSpec {
   readonly name: LocalToolName
@@ -107,10 +110,21 @@ const installHint = (spec: LocalToolSpec, toolsDir: string) =>
 
 const platformSupported = (spec: LocalToolSpec) => spec.platforms.includes(platformKey())
 
-const searchRoots = (toolsDir: string) => {
+/**
+ * Directory of the running binary with symlinks resolved. When npm nests the
+ * platform package inside `@skastr0/survey/node_modules`, walking up from here
+ * reaches the wrapper's `@firecrawl/*` optional dependencies; when npm hoists
+ * it, the wrapper passes its own location through NPM_PACKAGE_DIR_ENV.
+ */
+const executableDir = async () => dirname(await realPathOf(process.execPath))
+
+const searchRoots = (toolsDir: string, executable: string) => {
   const home = Bun.env.HOME ?? process.env.HOME
+  const wrapper = Bun.env[NPM_PACKAGE_DIR_ENV]?.trim()
   const roots = [
     toolsDir,
+    ...(wrapper ? [wrapper] : []),
+    executable,
     process.cwd(),
     ...(home ? [`${home}/.bun/install/global`] : []),
   ]
@@ -130,7 +144,7 @@ const probe = async (spec: LocalToolSpec, toolsDir: string): Promise<ToolResolut
     install_hint: hint,
   } as const
 
-  const roots = searchRoots(toolsDir)
+  const roots = searchRoots(toolsDir, await executableDir())
   const loadFailures: Array<string> = []
   for (const root of roots) {
     const result = await requireModule(root, spec.npmPackage)

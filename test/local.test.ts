@@ -61,6 +61,7 @@ vi.mock("../src/local/native", () => ({
 
 import { convertCommand } from "../src/capabilities/convert"
 import { extractCommand } from "../src/capabilities/extract"
+import { corpusCommand } from "../src/capabilities/corpus"
 import { authCommand } from "../src/commands/auth"
 import { capabilitiesCommand, doctorCommand } from "../src/commands/discovery"
 import { listContracts } from "../src/core/discovery"
@@ -276,13 +277,34 @@ const TestSpawner = Layer.succeed(
   ChildProcessSpawner.make(() => Effect.die("unused")),
 )
 
+import { Corpus, type PutDocument } from "../src/core/corpus"
 import { Store } from "../src/core/store"
 
 // None of the local routes touch the run/source ledger.
 const UnusedStore = Layer.succeed(Store, {} as never)
 
+// In-memory corpus: records puts and versions content by url like the real one.
+const stored: Array<PutDocument> = []
+const InMemoryCorpus = Layer.succeed(Corpus, {
+  put: (doc: PutDocument) =>
+    Effect.sync(() => {
+      const previous = stored.filter((d) => d.url === doc.url).at(-1)
+      stored.push(doc)
+      return {
+        id: stored.length,
+        canonical_url: doc.url,
+        version: stored.filter((d) => d.url === doc.url).length,
+        content_hash: "h",
+        created: previous === undefined,
+        changed: previous?.content !== doc.content,
+        previous_hash: null,
+      }
+    }),
+} as never)
+
 const testLayer = Layer.mergeAll(
   UnusedStore,
+  InMemoryCorpus,
   NodeFileSystem,
   Path.layer,
   Stdio.layerTest({}),
@@ -297,6 +319,7 @@ const root = Command.make("survey").pipe(
     pdfInspectorCommand,
     convertCommand,
     extractCommand,
+    corpusCommand,
     doctorCommand,
     capabilitiesCommand,
     authCommand,
@@ -374,6 +397,7 @@ beforeEach(() => {
   native.cliCalls.length = 0
   native.cliReply = () => ({ stdout: "", stderr: "", exitCode: 1 })
   calls.extract = 0
+  stored.length = 0
   calls.ocrOptions = undefined
   calls.regions = undefined
   clearLocalToolCache()
@@ -943,6 +967,96 @@ describe("extract keeps schema work on providers and sends plain documents local
       const schema = yield* run(["extract", json({ file_path: "/x.pdf", schema: { type: "object" } })])
       expect(schema.exitCode).toBe(1)
       expect(schema.stdout).toBe("")
+    }),
+  )
+})
+
+describe("convert remembers documents in the corpus", () => {
+  it.live("a complete conversion is stored as kind document and reports corpus like fetch", () =>
+    Effect.gen(function* () {
+      const path = writeDoc("report.pdf", "%PDF-1.4 TEXT")
+      const first = envelope(yield* run(["convert", json({ path, tags: ["papers"] })])).data
+      expect(first.corpus).toEqual({ id: 1, version: 1, changed: true, created: true })
+      expect(stored[0]).toMatchObject({
+        url: `file://${path}`,
+        content: "# extracted",
+        title: "report.pdf",
+        provider: "pdf-inspector",
+        kind: "document",
+        tags: ["papers"],
+      })
+      expect(stored[0]!.metadata).toMatchObject({
+        route: "local:pdf-inspector",
+        format: "pdf",
+        classification: { pdfType: "TextBased" },
+        pdf: { pageCount: 1 },
+      })
+
+      const again = envelope(yield* run(["convert", json({ path })])).data
+      expect(again.corpus).toEqual({ id: 2, version: 2, changed: false, created: false })
+    }),
+  )
+
+  it.live("url sources keep their url; base64 sources are keyed by content hash", () =>
+    Effect.gen(function* () {
+      const port = yield* Effect.promise(() => startServer(() => new Response("PK docx")))
+      const url = `http://127.0.0.1:${port}/a.docx`
+      yield* run(["convert", json({ url })])
+      expect(stored[0]).toMatchObject({ url, provider: "anydoc", kind: "document", title: "a.docx" })
+
+      yield* run(["convert", json({ base64: Buffer.from("PK x").toString("base64"), format: "docx" })])
+      expect(stored[1]!.url).toMatch(/^sha256:[0-9a-f]{64}$/)
+    }),
+  )
+
+  it.live("store:false opts out; incomplete conversions are never stored", () =>
+    Effect.gen(function* () {
+      const ok = writeDoc("a.pdf", "%PDF-1.4 TEXT")
+      const optOut = envelope(yield* run(["convert", json({ path: ok, store: false })])).data
+      expect(optOut.corpus).toBeUndefined()
+
+      const mixed = writeDoc("m.pdf", "%PDF-1.4 MIX")
+      const scan = writeDoc("s.pdf", "%PDF-1.4 SCAN")
+      const incomplete = envelope(yield* run(["convert", json([{ path: mixed }, { path: scan }])])).data
+      expect(incomplete.results.map((r: any) => r.data.corpus)).toEqual([undefined, undefined])
+      expect(stored).toHaveLength(0)
+    }),
+  )
+
+  it.live("the local branch of extract stores too", () =>
+    Effect.gen(function* () {
+      const path = writeDoc("r.pdf", "%PDF-1.4 TEXT")
+      const data = envelope(yield* run(["extract", json({ file_path: path })])).data
+      expect(data.result.corpus).toMatchObject({ created: true })
+      expect(stored[0]!.kind).toBe("document")
+    }),
+  )
+
+  it.live("corpus add converts binary documents and keeps the plain-text fast path", () =>
+    Effect.gen(function* () {
+      const pdf = writeDoc("paper.pdf", "%PDF-1.4 TEXT")
+      const added = envelope(yield* run(["corpus", "add", json({ path: pdf, tags: ["t"], metadata: { note: 1 } })])).data.results[0].data
+      expect(added).toMatchObject({ source: "convert", created: true, route: { selected: "local:pdf-inspector" } })
+      expect(stored).toHaveLength(1)
+      expect(stored[0]).toMatchObject({ url: `file://${pdf}`, kind: "document", provider: "pdf-inspector", tags: ["t"] })
+      expect(stored[0]!.metadata).toMatchObject({ note: 1, route: "local:pdf-inspector" })
+
+      const md = writeDoc("notes.md", "# plain")
+      const plain = envelope(yield* run(["corpus", "add", json({ path: md })])).data.results[0].data
+      expect(plain.source).toBe("path")
+      expect(stored[1]).toMatchObject({ content: "# plain", kind: "file", provider: "local" })
+
+      const csv = writeDoc("t.csv", "a,b\n1,2")
+      yield* run(["corpus", "add", json({ path: csv })])
+      expect(stored[2]).toMatchObject({ content: "a,b\n1,2", kind: "file" })
+      expect(native.cliCalls).toHaveLength(0)
+
+      const scan = writeDoc("scan.pdf", "%PDF-1.4 SCAN")
+      const rejected = yield* run(["corpus", "add", json({ path: scan })])
+      const error = envelope(rejected).data.results[0].error
+      expect(error.type).toBe("CommandInputError")
+      expect(error.message).toContain("did not convert completely")
+      expect(stored).toHaveLength(3)
     }),
   )
 })

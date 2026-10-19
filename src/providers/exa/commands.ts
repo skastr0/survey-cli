@@ -395,11 +395,6 @@ registerContracts([
     examples: [{ name: "similar", input: { url: "https://example.com/article" } }],
   },
   {
-    command: "exa agent",
-    description: "Manage Exa Agent runs",
-    orbit: AGENT_ORBIT,
-  },
-  {
     command: "exa agent start",
     description: "Start an asynchronous Exa Agent run (effort max sends agent-max-effort beta)",
     inputSchema: AgentStartInputSchema,
@@ -480,11 +475,6 @@ registerContracts([
     inputSchema: AgentIdInputSchema,
     orbit: AGENT_ORBIT,
     examples: [{ name: "agent-delete", input: { id: "agent_run_01j7x9v0m2n4p6q8r0s2t4v6w8" } }],
-  },
-  {
-    command: "exa deep-research",
-    description: "Manage Exa deep research tasks (deprecated aliases of Agent runs)",
-    orbit: DEEP_RESEARCH_ORBIT,
   },
   {
     command: "exa deep-research start",

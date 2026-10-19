@@ -6,7 +6,9 @@ import { Corpus, type DocumentFilter, type DocumentRecord, toFtsQuery } from "..
 import { diffLines } from "../core/diff"
 import { registerContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
+import { corpusRecord, isConvertiblePath, unifiedConvert } from "./convert"
 import { unifiedFetch } from "./fetch"
+import { loadDocumentSource } from "../local/source"
 
 const FilterFields = {
   provider: Schema.optional(Schema.String),
@@ -115,6 +117,26 @@ export const corpusAdd = (input: typeof CorpusAddInput.Type) =>
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const absolute = path.resolve(input.path)
+      if (input.content === undefined && isConvertiblePath(absolute)) {
+        // Binary documents (pdf/docx/pptx/xlsx/epub/...) go through the local-first router.
+        const converted = yield* unifiedConvert({ path: absolute, store: false })
+        if (!converted.complete || !converted.markdown) {
+          return yield* new CommandInputError({
+            field: "path",
+            message: `${absolute} did not convert completely (${converted.route.reason})${"next_step" in converted && converted.next_step ? `. ${converted.next_step}` : ""}`,
+          })
+        }
+        const doc = yield* loadDocumentSource({ path: absolute })
+        const record = corpusRecord(doc, converted, { title: input.title, tags: input.tags })
+        const result = yield* corpus.put({
+          ...record,
+          url: input.url ?? record.url,
+          provider: input.provider ?? record.provider,
+          kind: input.kind ?? record.kind,
+          metadata: { ...record.metadata, ...input.metadata },
+        })
+        return { ...result, source: "convert" as const, route: converted.route }
+      }
       const content =
         input.content ??
         (yield* fs.readFileString(absolute).pipe(
@@ -486,13 +508,18 @@ export const corpusCommand = Command.make("corpus").pipe(
 registerContracts([
   {
     command: "corpus add",
-    description: "Add/refresh documents in the local corpus (inline, local file, or fetched URL)",
+    description: "Add/refresh documents in the local corpus (inline, local file, binary document via local convert, or fetched URL)",
     inputSchema: CorpusAddInput,
     batch: true,
     examples: [
       { name: "fetch and store", input: { url: "https://effect.website/docs" } },
       { name: "inline note", input: { url: "note://lit-review/1", content: "Key finding…", tags: ["review"] } },
       { name: "local file", input: { path: "./notes/paper.md", tags: ["papers"] } },
+      {
+        name: "pdf/docx/pptx/xlsx/epub via local convert",
+        description: "Binary documents are converted locally first (see `survey convert`); incomplete (needs OCR) conversions are rejected, not stored.",
+        input: { path: "./papers/attention.pdf", tags: ["papers"] },
+      },
     ],
   },
   {

@@ -104,7 +104,7 @@ export const parseRunInputSchema = Schema.Struct({
   ...parseConfigurationFields,
 })
 
-const parseVersionsInputSchema = Schema.Struct({
+export const parseVersionsInputSchema = Schema.Struct({
   organization_id: Schema.optional(Schema.String),
   project_id: Schema.optional(Schema.String),
 })

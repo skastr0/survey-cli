@@ -19,6 +19,7 @@ import {
   parseResultInputSchema,
   parseRunInputSchema,
   parseUploadInputSchema,
+  parseVersionsInputSchema,
   parseWaitInputSchema,
 } from "./parse"
 
@@ -54,24 +55,37 @@ registerContracts([
     description: "List uploaded files with optional filters.",
     inputSchema: filesListInputSchema,
     orbit: filesOrbit,
+    examples: [
+      { name: "first page", input: { page_size: 25 } },
+      { name: "by file name", input: { file_name: "invoice.pdf" } },
+    ],
   },
   {
     command: "llama files inspect",
     description: "Get uploaded file metadata by file_id.",
     inputSchema: filesInspectInputSchema,
     orbit: filesOrbit,
+    examples: [
+      { name: "file metadata", input: { file_id: "dfl-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" } },
+    ],
   },
   {
     command: "llama files content",
     description: "Get a presigned download URL for an uploaded file.",
     inputSchema: filesContentInputSchema,
     orbit: filesOrbit,
+    examples: [
+      { name: "presigned download url", input: { file_id: "dfl-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", expires_at_seconds: 3600 } },
+    ],
   },
   {
     command: "llama files delete",
     description: "Delete an uploaded file.",
     inputSchema: filesDeleteInputSchema,
     orbit: filesOrbit,
+    examples: [
+      { name: "delete a file", input: { file_id: "dfl-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" } },
+    ],
   },
   {
     command: "llama parse create",
@@ -104,18 +118,28 @@ registerContracts([
       "Upload a local file and start a parse job in one multipart request.",
     inputSchema: parseUploadInputSchema,
     orbit: parseOrbit,
+    examples: [
+      { name: "upload and parse a local pdf", input: { file_path: "./document.pdf", tier: "agentic", version: "latest" } },
+    ],
   },
   {
     command: "llama parse list",
     description: "List parse jobs.",
     inputSchema: parseListInputSchema,
     orbit: parseOrbit,
+    examples: [
+      { name: "recent parse jobs", input: { page_size: 10 } },
+      { name: "completed only", input: { status: "COMPLETED" } },
+    ],
   },
   {
     command: "llama parse result",
     description: "Get parse job status and expanded results.",
     inputSchema: parseResultInputSchema,
     orbit: parseOrbit,
+    examples: [
+      { name: "markdown result", input: { job_id: "pjb-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", expand: ["markdown"] } },
+    ],
   },
   {
     command: "llama parse wait",
@@ -154,7 +178,9 @@ registerContracts([
   {
     command: "llama parse versions",
     description: "List available LlamaParse tier versions.",
+    inputSchema: parseVersionsInputSchema,
     orbit: parseOrbit,
+    examples: [{ name: "list tier versions", input: {} }],
   },
   {
     command: "llama extract create",
@@ -182,18 +208,27 @@ registerContracts([
     description: "Get extract job status and results.",
     inputSchema: extractGetInputSchema,
     orbit: extractOrbit,
+    examples: [
+      { name: "extract job and results", input: { job_id: "ext-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" } },
+    ],
   },
   {
     command: "llama extract list",
     description: "List extract jobs.",
     inputSchema: extractListInputSchema,
     orbit: extractOrbit,
+    examples: [
+      { name: "recent extract jobs", input: { page_size: 10 } },
+    ],
   },
   {
     command: "llama extract wait",
     description: "Poll an extract job until it is terminal.",
     inputSchema: extractWaitInputSchema,
     orbit: extractOrbit,
+    examples: [
+      { name: "wait for extract job", input: { job_id: "ext-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", timeout_seconds: 300 } },
+    ],
   },
   {
     command: "llama extract run",
