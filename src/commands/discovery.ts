@@ -4,6 +4,8 @@ import { Argument, CliOutput, Command } from "effect/unstable/cli"
 import { ARTIFACT_INLINE_THRESHOLD_BYTES, CLI_NAME, CLI_VERSION } from "../core/constants"
 import { type CommandContract, getContract, contractJsonSchema, listContracts } from "../core/discovery"
 import { CommandInputError, ERROR_TYPES } from "../core/errors"
+import { optionalJsonInputArg } from "../core/command"
+import { loadJsonInput } from "../core/json"
 import { executeJsonCommand } from "../core/output"
 import { artifactDir, storePath, surveyHome } from "../core/paths"
 import { loadProviderConfig, LOCAL_PROVIDERS, localProviderNames, PROVIDERS, providerNames } from "../core/registry"
@@ -230,14 +232,42 @@ export const doctorCommand = Command.make(
       "Report environment readiness: survey home, artifact dir, store path, which providers have credentials (and how to add missing ones), and local tool availability. No input",
     ))
 
+const CapabilitiesInput = Schema.Struct({
+  /** Exact command path, a namespace prefix ("exa"), or a glob ("exa agent *"). */
+  command: Schema.optional(Schema.String),
+  /** summary (default): one line per command; full: adds description, required_fields, orbit, output. */
+  detail: Schema.optional(Schema.Literals(["summary", "full"])),
+})
+
+const escapeRegex = (text: string) => text.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+
+const commandMatcher = (pattern: string | undefined): ((command: string) => boolean) => {
+  const trimmed = pattern?.trim() ?? ""
+  if (trimmed === "" || trimmed === "*") return () => true
+  if (trimmed.includes("*")) {
+    const regex = new RegExp(`^${trimmed.split("*").map(escapeRegex).join(".*")}$`)
+    return (command) => regex.test(command)
+  }
+  return (command) => command === trimmed || command.startsWith(`${trimmed} `)
+}
+
+/** First sentence of a description, capped, for the one-line inventory. */
+const summarize = (description: string) => {
+  const first = description.split(/(?<=[.!?])\s|\s(?=Input:)/)[0] ?? description
+  return first.length > 140 ? `${first.slice(0, 137)}...` : first
+}
+
 export const capabilitiesCommand = Command.make(
   "capabilities",
-  {},
-  Effect.fn(function* () {
+  { input: optionalJsonInputArg },
+  Effect.fn(function* ({ input }) {
     yield* executeJsonCommand(
       "capabilities",
       Effect.gen(function* () {
-        const contracts = listContracts()
+        const query = yield* loadJsonInput(CapabilitiesInput, Option.getOrElse(input, () => "{}"))
+        const full = query.detail === "full"
+        const matches = commandMatcher(query.command)
+        const contracts = listContracts().filter((contract) => matches(contract.command))
 
         const providers = providerNames.map((name) => {
           const spec = PROVIDERS[name]
@@ -338,18 +368,27 @@ export const capabilitiesCommand = Command.make(
             routing: 'unified search/fetch/research/verify/papers accept tier: "free" to use only public/local access',
             matrix: tierTable(),
           },
-          commands: contracts.map((contract) => ({
-            command: contract.command,
-            description: contract.description,
-            input: contractInputMode(contract),
-            required_fields: requiredFields(contract),
-            flags: flagNames(contract.command),
-            batch: contract.batch ?? false,
-            orbit: contract.orbit ?? [],
-            ...(contract.output ? { output: contract.output } : {}),
-          })),
+          commands_detail: full
+            ? "full"
+            : `summary: one string per command, "<command> — <summary> [input: <mode>[, batch]; flags: ...]". Pass {"detail":"full"} (narrow with {"command":"<prefix or glob>"}) for description, required_fields, orbit and output, or run ${CLI_NAME} schema show "<command>".`,
+          commands: contracts.map((contract) =>
+            full
+              ? {
+                  command: contract.command,
+                  description: contract.description,
+                  input: contractInputMode(contract),
+                  required_fields: requiredFields(contract),
+                  flags: flagNames(contract.command),
+                  batch: contract.batch ?? false,
+                  orbit: contract.orbit ?? [],
+                  ...(contract.output ? { output: contract.output } : {}),
+                }
+              : `${contract.command} — ${summarize(contract.description)} [input: ${contractInputMode(contract)}${
+                  contract.batch ? ", batch" : ""
+                }; flags: ${flagNames(contract.command).map((flag) => `--${flag}`).join(" ") || "none"}]`,
+          ),
           other_commands: [...surfaces.values()]
-            .filter((surface) => !contracted.has(surface.command))
+            .filter((surface) => !contracted.has(surface.command) && matches(surface.command))
             .map((surface) => ({
               command: surface.command,
               description: surface.description,
@@ -362,7 +401,7 @@ export const capabilitiesCommand = Command.make(
     )
   }),
 ).pipe(Command.withDescription(
-      "Report the protocol contract (envelopes, exit codes, error details, batch, artifacts, idempotency), every command with its input mode, required fields and accepted flags, and the provider capability matrix. No input",
+      "Report the protocol contract (envelopes, exit codes, error types, batch, artifacts, idempotency, tiers), the provider matrix, and one line per command (input mode, flags). Optional input: {command?: prefix or glob, detail?: summary|full}; full adds description, required_fields, orbit, output",
     ))
 
 export const schemaCommand = Command.make("schema").pipe(

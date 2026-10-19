@@ -74,7 +74,9 @@ try {
   const doctor = await call(["doctor"])
   check("doctor", doctor.ok, doctor.error)
 
-  const capabilities = await call(["capabilities"])
+  const capabilities = await call(["capabilities"], { detail: "full" })
+  const compact = await run(["capabilities"])
+  check("capabilities default stays under the 64 KiB artifact threshold", compact.exitCode === 0 && compact.stdout.length < 64 * 1024, compact.stdout.length)
   check("capabilities", capabilities.ok && capabilities.data.commands.length > 0, capabilities.error)
   const commands: Array<string> = capabilities.data?.commands?.map((c: { command: string }) => c.command) ?? []
 
