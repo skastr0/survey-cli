@@ -12,6 +12,13 @@ import { diffLines } from "../core/diff"
 import { registerContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
 import { convertIngestFile, corpusRecord, DOCUMENT_EXTENSIONS, isConvertiblePath, unifiedConvert } from "./convert"
+import {
+  corpusExportCommand,
+  corpusImportCommand,
+  corpusLinksCommand,
+  corpusTagCommand,
+  corpusToolContracts,
+} from "./corpus-tools"
 import { directoryFields, fileUrl, ingestDirectory, type IngestOutcome } from "./ingest"
 import { basename } from "node:path"
 import { unifiedFetch } from "./fetch"
@@ -670,11 +677,16 @@ export const corpusCommand = Command.make("corpus").pipe(
     corpusDiffCommand,
     corpusRemoveCommand,
     corpusPruneCommand,
+    corpusExportCommand,
+    corpusImportCommand,
+    corpusTagCommand,
+    corpusLinksCommand,
     corpusStatsCommand,
   ]),
 )
 
 registerContracts([
+  ...corpusToolContracts,
   {
     command: "corpus add",
     description: "Add/refresh documents in the local corpus (inline, local file, binary document via local convert, or fetched URL)",

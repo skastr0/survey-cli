@@ -521,7 +521,7 @@ describe("corpus prune", () => {
   it.live("max_remove caps a call and reports truncation; bad criteria are rejected", () =>
     Effect.gen(function* () {
       seed()
-      const capped = (yield* run(["corpus", "prune", json({ older_than: "1d", missing_files: false, max_remove: 2, dry_run: false })])).body.data
+      const capped = (yield* run(["corpus", "prune", json({ older_than: "12h", missing_files: false, max_remove: 2, dry_run: false })])).body.data
       expect(capped).toMatchObject({ matched: 5, removed: 2, truncated: true })
       expect(docs).toHaveLength(3)
 

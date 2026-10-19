@@ -45,6 +45,7 @@ const stubCorpus = (docs: ReadonlyArray<DocumentRecord>, versions: Record<string
     scan: (options) =>
       Effect.succeed(options.ids === undefined ? docs : docs.filter((d) => options.ids!.includes(d.id))),
     remove: () => Effect.succeed(0),
+    setTags: () => Effect.die("unused"),
     stats: Effect.die("unused"),
   })
   return { layer: Layer.succeed(Corpus, service), searched }
@@ -210,6 +211,7 @@ describe("corpusAdd", () => {
         list: () => Effect.die("unused"),
         scan: () => Effect.die("unused"),
         remove: () => Effect.die("unused"),
+        setTags: () => Effect.die("unused"),
         stats: Effect.die("unused"),
       }),
     )
