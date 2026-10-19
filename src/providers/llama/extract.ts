@@ -244,14 +244,14 @@ const extractCreateCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Start an extract v2 job from a file_id or parse job id",
+    "Start a LlamaExtract v2 job. Input: {file_input (file_id or parse job id), configuration{data_schema}|configuration_id}. Returns the job {id, status}; --wait returns the completed job.",
   ),
 )
 
 const extractGetCommand = makeJsonCommand({
   name: "get",
   commandName: "llama extract get",
-  description: "Get extract job status and results",
+  description: "Get an extract job once. Input: {job_id, expand?}. Returns the provider job {id, status, extract_result?, extract_metadata?, error_message?}.",
   schema: extractGetInputSchema,
   run: (payload) =>
     Effect.gen(function* () {
@@ -300,7 +300,7 @@ const extractListCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("List extract jobs"))
+).pipe(Command.withDescription("List LlamaExtract jobs. Input (optional): {page_size?, page_token?, status?}. Returns {items: [jobs {id, status}], next_page_token}."))
 
 const extractWaitCommand = Command.make(
   "wait",
@@ -337,7 +337,7 @@ const extractWaitCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Poll an extract job until COMPLETED, FAILED, or CANCELLED",
+    "Poll an extract job until COMPLETED; fails on FAILED, CANCELLED, or timeout. Input: {job_id, expand?, timeout_seconds?}. Returns the completed job {id, status, extract_result}.",
   ),
 )
 
@@ -416,7 +416,7 @@ const extractRunCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Upload a file if needed, start extract, and wait for structured results",
+    "Upload a local file if needed, start extract, and wait. Input: {file_path|file_input, configuration{data_schema}|configuration_id}. Returns the completed job {id, status, extract_result}.",
   ),
 )
 
