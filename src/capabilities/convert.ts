@@ -8,6 +8,7 @@ import { makeOneOrManyCommand } from "../local/command"
 import { registerContract } from "../core/discovery"
 import { LocalToolError, LocalToolUnavailableError } from "../core/errors"
 import { rememberDocument } from "../core/corpus"
+import { directoryFields, ingestDirectory, type IngestFile, type IngestOutcome } from "./ingest"
 import { loadProviderConfig } from "../core/registry"
 import {
   documentSourceFields,
@@ -34,6 +35,8 @@ export const UnifiedConvertInput = Schema.Struct({
   store: Schema.optional(Schema.Boolean),
   title: Schema.optional(Schema.String),
   tags: Schema.optional(Schema.Array(Schema.String)),
+  /** Convert every matching file under `dir` (see directoryFields). */
+  ...directoryFields,
 })
 export type UnifiedConvertInput = typeof UnifiedConvertInput.Type
 
@@ -418,6 +421,7 @@ export const corpusRecord = (
     ...("classification" in result && result.classification ? { classification: result.classification } : {}),
     ...("pdf" in result && result.pdf ? { pdf: result.pdf } : {}),
     source_bytes: doc.bytes.byteLength,
+    source_sha256: createHash("sha256").update(doc.bytes).digest("hex"),
   } as Record<string, unknown>,
 })
 
@@ -441,6 +445,42 @@ export const unifiedConvert = Effect.fn("unifiedConvert")(function* (
         },
       }
 })
+
+/** Convert one file found by directory ingest and report what happened to the corpus. */
+export const convertIngestFile = (
+  file: IngestFile,
+  input: Pick<UnifiedConvertInput, "route" | "llama_options" | "tags" | "store" | "timeout_ms" | "max_bytes">,
+): Effect.Effect<IngestOutcome, unknown, AppEnv> =>
+  unifiedConvert({
+    path: file.path,
+    ...(input.route ? { route: input.route } : {}),
+    ...(input.llama_options ? { llama_options: input.llama_options } : {}),
+    ...(input.tags ? { tags: input.tags } : {}),
+    ...(input.store === false ? { store: false } : {}),
+    ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
+    ...(input.max_bytes !== undefined ? { max_bytes: input.max_bytes } : {}),
+  }).pipe(
+    Effect.map((result): IngestOutcome => {
+      const corpus = "corpus" in result ? result.corpus : undefined
+      if (!result.complete) {
+        return { status: "needs_ocr", route: result.route.selected, detail: result.route.reason }
+      }
+      if (corpus === undefined) return { status: "converted", route: result.route.selected }
+      return {
+        status: corpus.created ? "stored" : corpus.changed ? "updated" : "unchanged",
+        corpus,
+        route: result.route.selected,
+      }
+    }),
+  )
+
+export const convertDirectory = (input: UnifiedConvertInput) =>
+  ingestDirectory({
+    input,
+    defaultGlob: "*.{pdf,doc,docx,docm,odt,rtf,epub,ppt,pptx,pptm,pps,ppsx,xls,xlsx,xlsm,xlsb,ods,odp,csv}",
+    storing: input.store !== false,
+    process: (file) => convertIngestFile(file, input),
+  })
 
 export const DOCUMENT_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "docm", "odt", "rtf", "epub", "ppt", "pptx", "pptm", "pps", "ppsx",
@@ -487,13 +527,13 @@ export const convertCommand = makeOneOrManyCommand({
   description:
     "Local-first document → Markdown: PDFs classify then extract locally (scanned → LlamaCloud OCR if keyed), office files via anydoc",
   schema: UnifiedConvertInput,
-  run: (input) => unifiedConvert(input),
+  run: (input) => (input.dir !== undefined ? convertDirectory(input) : unifiedConvert(input)),
 })
 
 registerContract({
   command: "convert",
   description:
-    "Local-first document to Markdown router. PDF → pdf-inspector classify: text-based extracts locally (free, private); scanned/image-only/mixed or garbled-font PDFs go to LlamaCloud parse when LLAMA_CLOUD_API_KEY is set, else return status needs_ocr with the classification. Non-PDF office files → anydoc. URLs are downloaded then converted locally. Every response names the route taken and why (route.selected, route.reason, route.trace). Complete conversions are remembered in the local corpus (kind document, url = source URL or file:// path) unless store is false; the response then carries corpus {id, version, changed, created}. route=local forbids any hosted call.",
+    "Local-first document to Markdown router. PDF → pdf-inspector classify: text-based extracts locally (free, private); scanned/image-only/mixed or garbled-font PDFs go to LlamaCloud parse when LLAMA_CLOUD_API_KEY is set, else return status needs_ocr with the classification. Non-PDF office files → anydoc. URLs are downloaded then converted locally. Every response names the route taken and why (route.selected, route.reason, route.trace). With dir (and optional glob, recursive, concurrency, max_files, dry_run, force) every matching file is converted and remembered, skipping files whose content hash already matches the corpus copy; the result lists a status per file (stored, updated, unchanged, skipped_unchanged, needs_ocr, failed). Complete conversions are remembered in the local corpus (kind document, url = source URL or file:// path) unless store is false; the response then carries corpus {id, version, changed, created}. route=local forbids any hosted call.",
   inputSchema: UnifiedConvertInput,
   batch: true,
   output:
@@ -504,6 +544,8 @@ registerContract({
     { name: "never leave the machine", input: { path: "./scan.pdf", route: "local" } },
     { name: "force hosted parse", input: { path: "./scan.pdf", route: "llama", llama_options: { tier: "cost_effective" } } },
     { name: "ordered batch", input: [{ path: "./a.pdf" }, { path: "./b.docx" }] },
+    { name: "convert and remember a whole folder", input: { dir: "./papers", recursive: true, concurrency: 4 } },
+    { name: "only some files; preview first", input: { dir: "./inbox", glob: "**/*.{pdf,docx}", dry_run: true } },
     { name: "do not remember in the corpus", input: { path: "./draft.docx", store: false } },
     { name: "tag and title for the corpus", input: { url: "https://example.com/paper.pdf", title: "Paper", tags: ["papers"] } },
   ],

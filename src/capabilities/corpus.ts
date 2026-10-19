@@ -6,7 +6,9 @@ import { Corpus, type DocumentFilter, type DocumentRecord, toFtsQuery } from "..
 import { diffLines } from "../core/diff"
 import { registerContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
-import { corpusRecord, isConvertiblePath, unifiedConvert } from "./convert"
+import { convertIngestFile, corpusRecord, DOCUMENT_EXTENSIONS, isConvertiblePath, unifiedConvert } from "./convert"
+import { directoryFields, fileUrl, ingestDirectory, type IngestOutcome } from "./ingest"
+import { basename } from "node:path"
 import { unifiedFetch } from "./fetch"
 import { loadDocumentSource } from "../local/source"
 
@@ -33,6 +35,8 @@ export const CorpusAddInput = Schema.Struct({
   tags: Schema.optional(Schema.Array(Schema.String)),
   metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   fetch: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  /** Add every matching file under `dir` (see directoryFields). */
+  ...directoryFields,
 })
 
 export const CorpusSearchInput = Schema.Struct({
@@ -113,6 +117,37 @@ const summarize = ({ content: _content, ...rest }: DocumentRecord) => rest
 export const corpusAdd = (input: typeof CorpusAddInput.Type) =>
   Effect.gen(function* () {
     const corpus = yield* Corpus
+    if (input.dir !== undefined) {
+      // Binary documents convert (and report needs_ocr); text files take the plain-text path.
+      const fs = yield* FileSystem.FileSystem
+      return yield* ingestDirectory({
+        input,
+        storing: true,
+        defaultGlob: `*.{${[...DOCUMENT_EXTENSIONS].join(",")},md,markdown,txt,rst}`,
+        process: (file) =>
+          isConvertiblePath(file.path)
+            ? convertIngestFile(file, { ...(input.tags ? { tags: input.tags } : {}) })
+            : fs.readFileString(file.path).pipe(
+                Effect.flatMap((content) =>
+                  corpus.put({
+                    url: fileUrl(file.path),
+                    content,
+                    title: basename(file.path),
+                    provider: input.provider ?? "local",
+                    kind: input.kind ?? "file",
+                    tags: input.tags,
+                    metadata: { ...input.metadata, source_sha256: file.sha256 },
+                  }),
+                ),
+                Effect.map(
+                  (put): IngestOutcome => ({
+                    status: put.created ? "stored" : put.changed ? "updated" : "unchanged",
+                    corpus: { id: put.id, version: put.version, changed: put.changed, created: put.created },
+                  }),
+                ),
+              ),
+      })
+    }
     if (input.path !== undefined) {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -515,6 +550,11 @@ registerContracts([
       { name: "fetch and store", input: { url: "https://effect.website/docs" } },
       { name: "inline note", input: { url: "note://lit-review/1", content: "Key finding…", tags: ["review"] } },
       { name: "local file", input: { path: "./notes/paper.md", tags: ["papers"] } },
+      {
+        name: "a whole directory",
+        description: "Converts binary documents, stores text files, skips files whose content hash already matches the corpus copy. dry_run previews; force re-converts.",
+        input: { dir: "./papers", glob: "**/*.{pdf,md}", recursive: true, concurrency: 4 },
+      },
       {
         name: "pdf/docx/pptx/xlsx/epub via local convert",
         description: "Binary documents are converted locally first (see `survey convert`); incomplete (needs OCR) conversions are rejected, not stored.",
