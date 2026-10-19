@@ -1,11 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { Effect, FileSystem, Layer, Path } from "effect"
 
 ;(globalThis as { Bun?: unknown }).Bun ??= { env: process.env }
 
-import { corpusDiff, corpusGrep, corpusRead, corpusSearch } from "../src/capabilities/corpus"
+import { corpusAdd, corpusDiff, corpusGrep, corpusRead, corpusSearch } from "../src/capabilities/corpus"
 import { Corpus, type DocumentRecord, documentKey, hashContent, toFtsQuery } from "../src/core/corpus"
 import { diffLines } from "../src/core/diff"
+import { Store } from "../src/core/store"
+import { FetchHttpClient } from "effect/unstable/http"
 
 const doc = (id: number, url: string, content: string, version = 1): DocumentRecord => ({
   id,
@@ -47,6 +49,15 @@ const stubCorpus = (docs: ReadonlyArray<DocumentRecord>, versions: Record<string
 }
 
 describe("toFtsQuery", () => {
+  it("quotes AND/OR/NOT unless they sit between two terms", () => {
+    expect(toFtsQuery("NOT alpha")).toBe('"NOT" "alpha"')
+    expect(toFtsQuery("alpha OR")).toBe('"alpha" "OR"')
+    expect(toFtsQuery("AND")).toBe('"AND"')
+    expect(toFtsQuery("alpha OR NOT beta")).toBe('"alpha" "OR" "NOT" "beta"')
+    expect(toFtsQuery("alpha AND beta")).toBe('"alpha" AND "beta"')
+    expect(toFtsQuery('alpha "" beta')).toBe('"alpha" "beta"')
+  })
+
   it("quotes bare terms so punctuation never breaks FTS5", () => {
     expect(toFtsQuery("effect-ts v4.0 rate:limit")).toBe('"effect-ts" "v4.0" "rate:limit"')
   })
@@ -64,6 +75,12 @@ describe("documentKey", () => {
 })
 
 describe("diffLines", () => {
+  it("treats an empty side as zero lines", () => {
+    expect(diffLines("", "hello\nworld")).toMatchObject({ added: 2, removed: 0, unchanged: 0 })
+    expect(diffLines("hello\nworld", "")).toMatchObject({ added: 0, removed: 2, unchanged: 0 })
+    expect(diffLines("", "hello").hunks[0]?.lines).toEqual(["+hello"])
+  })
+
   it("emits removals before additions with context", () => {
     const result = diffLines("a\nb\nc\nd", "a\nB\nc\nd", 1)
     expect(result.mode).toBe("lcs")
@@ -152,3 +169,38 @@ describe("corpus commands", () => {
     ),
   )
 })
+
+describe("corpusAdd", () => {
+  it.effect("keys local files with an encoded file URL so # and ? survive", () => {
+    const puts: Array<string> = []
+    const corpus = Layer.succeed(
+      Corpus,
+      Corpus.of({
+        put: (put) =>
+          Effect.sync(() => {
+            puts.push(documentKey(put.url))
+            return { id: puts.length, canonical_url: put.url, version: 1, content_hash: "h", created: true, changed: true, previous_hash: null }
+          }),
+        get: () => Effect.die("unused"),
+        versions: () => Effect.die("unused"),
+        versionContent: () => Effect.die("unused"),
+        search: () => Effect.die("unused"),
+        list: () => Effect.die("unused"),
+        scan: () => Effect.die("unused"),
+        remove: () => Effect.die("unused"),
+        stats: Effect.die("unused"),
+      }),
+    )
+    const fs = FileSystem.layerNoop({ readFileString: () => Effect.succeed("note") })
+    return Effect.gen(function* () {
+      yield* corpusAdd({ path: "/tmp/notes#1.md" })
+      yield* corpusAdd({ path: "/tmp/notes#2.md" })
+      yield* corpusAdd({ path: "/tmp/plan?draft.md" })
+      expect(puts).toEqual(["file:///tmp/notes%231.md", "file:///tmp/notes%232.md", "file:///tmp/plan%3Fdraft.md"])
+    }).pipe(
+      // corpusAdd can fall back to unified fetch; the path branch never reaches it.
+      Effect.provide(Layer.mergeAll(corpus, fs, Path.layer, FetchHttpClient.layer, Layer.succeed(Store, Store.of({} as never)))),
+    )
+  })
+})
+

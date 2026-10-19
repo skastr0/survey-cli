@@ -108,15 +108,21 @@ export const domainOf = (url: string) => {
  * Quote each bare term so arbitrary agent input never trips FTS5 syntax
  * (`-`, `:`, `.`, unbalanced quotes). `syntax: "fts"` callers bypass this.
  */
+const FTS_OPERATORS = new Set(["OR", "AND", "NOT"])
+
 export const toFtsQuery = (query: string) => {
-  const terms = query.match(/"[^"]*"|\S+/g) ?? []
+  const terms = (query.match(/"[^"]*"|\S+/g) ?? []).filter((term) => term.replace(/"/g, "").length > 0)
+  const quote = (term: string) => `"${term.replace(/^"|"$/g, "").replace(/"/g, "\"\"")}"`
+  // An operator is only valid FTS5 between two terms; at an edge or next to
+  // another operator it is a literal word ("NOT alpha", "alpha OR").
   return terms
-    .map((term) => {
-      if (term === "OR" || term === "AND" || term === "NOT") return term
-      const bare = term.replace(/^"|"$/g, "").replace(/"/g, "\"\"")
-      return bare.length === 0 ? "" : `"${bare}"`
+    .map((term, index) => {
+      const isOperator = FTS_OPERATORS.has(term)
+      const prev = terms[index - 1]
+      const next = terms[index + 1]
+      const between = prev !== undefined && next !== undefined && !FTS_OPERATORS.has(prev) && !FTS_OPERATORS.has(next)
+      return isOperator && between ? term : quote(term)
     })
-    .filter((term) => term.length > 0)
     .join(" ")
 }
 
