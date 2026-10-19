@@ -59,7 +59,7 @@ describe("groupSources", () => {
     expect(result.independent_sources).toBe(4)
     const reuters = result.groups.find((g) => g.domains.includes("reuters.com"))!
     expect(reuters.domains).toEqual(["reuters.com", "yahoo.com"])
-    expect(reuters.providers.sort()).toEqual(["exa", "firecrawl", "parallel"])
+    expect([...reuters.providers].sort()).toEqual(["exa", "firecrawl", "parallel"])
     expect(reuters.merged_by).toEqual(["same_domain", "same_page", "similar_title"])
     const attention = result.groups.find((g) => g.key === "arxiv:1706.03762")!
     expect(attention.urls).toHaveLength(2)
