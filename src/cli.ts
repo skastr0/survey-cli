@@ -38,9 +38,10 @@ import { keenableCommand } from "./providers/keenable"
 import { llamaCommand } from "./providers/llama"
 import { parallelCommand } from "./providers/parallel"
 import { pdfInspectorCommand } from "./providers/pdf-inspector"
+import { tinyfishCommand } from "./providers/tinyfish"
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
-  Command.withDescription("Consolidated researcher toolkit CLI — one binary, five providers, cross-provider research"),
+  Command.withDescription("Consolidated researcher toolkit CLI — one binary, six providers, cross-provider research"),
   Command.withSubcommands([
     authCommand,
     capabilitiesCommand,
@@ -54,6 +55,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     llamaCommand,
     anydocCommand,
     pdfInspectorCommand,
+    tinyfishCommand,
     searchCommand,
     fetchCommand,
     extractCommand,

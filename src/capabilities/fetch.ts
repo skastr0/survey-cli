@@ -5,14 +5,16 @@ import type { AppEnv } from "../core/env"
 import { makeJsonCommand } from "../core/command"
 import { recallDocument, rememberDocument } from "../core/corpus"
 import { registerContract } from "../core/discovery"
+import { ApiResponseError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { loadProviderConfig, ProviderName } from "../core/registry"
 import { exaApi } from "../providers/exa"
 import { firecrawlApi } from "../providers/firecrawl"
 import { keenableApi } from "../providers/keenable"
+import { tinyfishApi } from "../providers/tinyfish"
 
-const DEFAULT_ORDER = ["firecrawl", "keenable", "exa"] as const
+const DEFAULT_ORDER = ["firecrawl", "tinyfish", "keenable", "exa"] as const
 
 export const UnifiedFetchInput = Schema.Struct({
   url: Schema.NonEmptyString,
@@ -25,6 +27,7 @@ export const UnifiedFetchInput = Schema.Struct({
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  tinyfish: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 export type UnifiedFetchInput = typeof UnifiedFetchInput.Type
 
@@ -77,7 +80,9 @@ const tryProvider = (
           ? (input.keenable ?? {})
           : provider === "exa"
             ? (input.exa ?? {})
-            : {}
+            : provider === "tinyfish"
+              ? (input.tinyfish ?? {})
+              : {}
     if (provider === "firecrawl") {
       const format = input.format ?? "markdown"
       const payload = yield* firecrawlApi.scrape({
@@ -90,6 +95,22 @@ const tryProvider = (
     if (provider === "keenable") {
       const payload = yield* keenableApi.fetch({ url: input.url, ...overrides } as never)
       return { payload, ...extractContent(payload) }
+    }
+    if (provider === "tinyfish") {
+      const format = input.format === "html" ? "html" : "markdown"
+      const payload = yield* tinyfishApi.fetch({ urls: [input.url], format, ...overrides } as never)
+      const first = payload.results[0]
+      if (first === undefined || typeof first.text !== "string" || first.text.length === 0) {
+        return yield* new ApiResponseError({
+          provider,
+          method: "POST",
+          path: "/",
+          status: 200,
+          message: payload.errors?.[0]?.error ?? `tinyfish returned no content for ${input.url}`,
+          body: payload,
+        })
+      }
+      return { payload, content: first.text, raw: payload }
     }
     if (provider === "exa") {
       const payload = yield* exaApi.contents({ url: input.url, ...overrides } as never)
@@ -126,7 +147,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 
   const attempted: Array<{ provider: string; ok: boolean; error?: unknown }> = []
   for (const provider of order) {
-    if (!["firecrawl", "keenable", "exa"].includes(provider)) {
+    if (!["firecrawl", "tinyfish", "keenable", "exa"].includes(provider)) {
       attempted.push({ provider, ok: false, error: "provider does not support fetch" })
       continue
     }
@@ -200,7 +221,7 @@ export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
   description:
-    "Fetch a URL with provider fallback (firecrawl → keenable → exa). Every fetched page is stored in the local corpus (store:false opts out); max_age_ms serves a fresh-enough corpus copy without a provider call. corpus.changed reports content changes since the last fetch.",
+    "Fetch a URL with provider fallback (firecrawl → tinyfish → keenable → exa). Every fetched page is stored in the local corpus (store:false opts out); max_age_ms serves a fresh-enough corpus copy without a provider call. corpus.changed reports content changes since the last fetch.",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
@@ -214,6 +235,10 @@ registerContract({
     {
       name: "keenable first",
       input: { url: "https://example.com", providers: ["keenable", "exa"] },
+    },
+    {
+      name: "tinyfish first",
+      input: { url: "https://example.com", providers: ["tinyfish", "keenable"], tinyfish: { ttl: 0 } },
     },
     { name: "cache for an hour", input: { url: "https://effect.website", max_age_ms: 3600000 } },
     { name: "watch for changes", input: { url: "https://example.com/pricing", tags: ["watch"] } },

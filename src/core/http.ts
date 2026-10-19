@@ -17,6 +17,8 @@ export interface RequestSpec<S extends Schema.Constraint> {
   readonly provider: ProviderName
   readonly method: HttpMethod
   readonly path: string
+  /** Overrides the provider's base URL for providers that split products across hosts. */
+  readonly baseUrl?: string
   readonly integration?: string
   readonly body?: unknown
   readonly formData?: FormData
@@ -45,7 +47,7 @@ const authHeaders = (
   }
 }
 
-const baseClient = (provider: ProviderName, requireAuth: boolean) =>
+const baseClient = (provider: ProviderName, requireAuth: boolean, baseUrl?: string) =>
   Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient
     const config = yield* loadProviderConfig(provider)
@@ -59,7 +61,7 @@ const baseClient = (provider: ProviderName, requireAuth: boolean) =>
       client: client.pipe(
         HttpClient.mapRequest((request) =>
           request.pipe(
-            HttpClientRequest.prependUrl(config.apiBaseUrl),
+            HttpClientRequest.prependUrl(baseUrl ?? config.apiBaseUrl),
             HttpClientRequest.setHeader("user-agent", USER_AGENT),
             HttpClientRequest.setHeaders(headers),
           ),
@@ -165,7 +167,7 @@ const toRequestError =
 
 export const requestJson = <S extends Schema.Constraint>(spec: RequestSpec<S>) =>
   Effect.gen(function* () {
-    const { client } = yield* baseClient(spec.provider, true)
+    const { client } = yield* baseClient(spec.provider, true, spec.baseUrl)
     const request = buildRequest(spec)
 
     const response = yield* client.execute(request).pipe(
@@ -217,7 +219,7 @@ export const requestJson = <S extends Schema.Constraint>(spec: RequestSpec<S>) =
 
 export const requestJsonOptionalAuth = <S extends Schema.Constraint>(spec: RequestSpec<S>) =>
   Effect.gen(function* () {
-    const { client } = yield* baseClient(spec.provider, false)
+    const { client } = yield* baseClient(spec.provider, false, spec.baseUrl)
     const request = buildRequest(spec)
 
     const response = yield* client.execute(request).pipe(
@@ -269,7 +271,7 @@ export const requestJsonOptionalAuth = <S extends Schema.Constraint>(spec: Reque
 
 export const requestText = (spec: TextRequestSpec) =>
   Effect.gen(function* () {
-    const { client } = yield* baseClient(spec.provider, true)
+    const { client } = yield* baseClient(spec.provider, true, spec.baseUrl)
     const request = buildRequest(spec)
 
     const response = yield* client.execute(request).pipe(
