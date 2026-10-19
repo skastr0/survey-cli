@@ -18,6 +18,7 @@ import { convertCommand } from "./capabilities/convert"
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
 import { monitorCommand } from "./capabilities/monitor"
+import { papersCommand } from "./capabilities/papers"
 import { pipeCommand } from "./capabilities/pipe"
 import { researchCommand } from "./capabilities/research"
 import { runsCommand } from "./capabilities/runs"
@@ -58,6 +59,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     tinyfishCommand,
     searchCommand,
     fetchCommand,
+    papersCommand,
     extractCommand,
     convertCommand,
     researchCommand,

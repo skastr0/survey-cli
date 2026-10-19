@@ -6,7 +6,8 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
-import { loadProviderConfig, ProviderName } from "../core/registry"
+import { ProviderName } from "../core/registry"
+import { routeProviders, Tier, withTier } from "../core/tiers"
 import { mergeResults, toResults, type NormalizedResult, type ProviderOutcome } from "./normalize"
 import { exaApi } from "../providers/exa"
 import { parallelApi } from "../providers/parallel"
@@ -15,12 +16,16 @@ import { firecrawlApi } from "../providers/firecrawl"
 import { tinyfishApi } from "../providers/tinyfish"
 
 const SearchProviders = Schema.Array(ProviderName)
+const SEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "keenable", "firecrawl", "tinyfish"]
 
 export const UnifiedSearchInput = Schema.Struct({
   query: Schema.NonEmptyString,
   num_results: Schema.optional(Schema.Int),
   providers: Schema.optional(SearchProviders),
   timeout_ms: Schema.optional(Schema.Int),
+  tier: Schema.optional(Tier.annotate({
+    description: "free: only keyless/local access (no account credits). any (default): keyed where configured.",
+  })),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -81,26 +86,16 @@ const runProvider = (
 export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
   input: UnifiedSearchInput,
 ) {
-  const requested = input.providers ?? (["exa", "parallel", "keenable", "firecrawl", "tinyfish"] as const)
-
-  const eligible: Array<ProviderName> = []
-  const skipped: Array<{ provider: string; reason: string }> = []
-  for (const provider of requested) {
-    if (!["exa", "parallel", "keenable", "firecrawl", "tinyfish"].includes(provider)) {
-      skipped.push({ provider, reason: "provider does not support unified search" })
-      continue
-    }
-    const config = yield* loadProviderConfig(provider)
-    if (config.credential === undefined && provider !== "keenable") {
-      skipped.push({ provider, reason: "no API key configured" })
-      continue
-    }
-    eligible.push(provider)
-  }
-
-  const outcomes = yield* Effect.forEach(eligible, (p) => runProvider(p, input), {
-    concurrency: "unbounded",
+  const { eligible, skipped } = yield* routeProviders({
+    requested: input.providers ?? SEARCH_ADAPTERS,
+    adapters: SEARCH_ADAPTERS,
+    capability: "search",
+    tier: input.tier,
   })
+
+  const outcomes = yield* Effect.forEach(eligible, ({ provider }) => runProvider(provider, input), {
+    concurrency: "unbounded",
+  }).pipe(withTier(input.tier))
 
   for (const outcome of outcomes) {
     if (outcome.ok) {
@@ -117,6 +112,7 @@ export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
     query: input.query,
     results,
     providers_used: outcomes.filter((o) => o.ok).map((o) => o.provider),
+    routing: eligible.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
     failures: outcomes
       .filter((o) => !o.ok)
       .map((o) => ({ provider: o.provider, error: o.error })),
@@ -149,6 +145,11 @@ registerContract({
     {
       name: "explicit providers",
       input: { query: "firecrawl v2 extract", providers: ["exa", "keenable"] },
+    },
+    {
+      name: "free tier only",
+      description: "Route only to keyless endpoints; never spends account credits",
+      input: { query: "bun sqlite wal mode", tier: "free" },
     },
     {
       name: "tinyfish news override",

@@ -183,6 +183,7 @@ describe("firecrawl api", () => {
           expect(result).toEqual({
             success: true,
             data: { markdown: "# Example", json: { title: "Example" } },
+            auth_mode: "keyed",
           })
         },
       ),
@@ -229,7 +230,7 @@ describe("firecrawl api", () => {
           const result = await Effect.runPromise(
             run(runScrapeCommand(validated, 1)),
           )
-          expect(result).toEqual({ success: true, data: { answer: "$1" } })
+          expect(result).toEqual({ success: true, data: { answer: "$1" }, auth_mode: "keyed" })
         },
       ),
     ),
@@ -620,7 +621,7 @@ describe("firecrawl api", () => {
             }),
           )
           const result = await Effect.runPromise(run(runParseCommand(validated, 1)))
-          expect(result).toEqual({ success: true, data: { markdown: "# Report" } })
+          expect(result).toEqual({ success: true, data: { markdown: "# Report" }, auth_mode: "keyed" })
         },
       ),
     )
@@ -760,7 +761,7 @@ describe("firecrawl api", () => {
             }),
           )
           const executed = await Effect.runPromise(run(interactExecute(validated)))
-          expect(executed).toEqual({ success: true, output: "Example" })
+          expect(executed).toEqual({ success: true, output: "Example", auth_mode: "keyed" })
 
           const both = await Effect.runPromise(
             validateInteractExecuteInput({
@@ -929,7 +930,7 @@ describe("firecrawl cli", () => {
         expect(scrapePayload).toEqual({
           ok: true,
           command: "firecrawl scrape",
-          data: { success: true, data: { markdown: "# Hi" } },
+          data: { success: true, data: { markdown: "# Hi" }, auth_mode: "keyed" },
         })
 
         const batchStart = await runCli(
@@ -1003,7 +1004,8 @@ console.log(JSON.stringify(db.query("select provider, kind, remote_id, status fr
 
   it("missing API key produces MissingApiKeyError envelope", async () => {
     const surveyHome = mkdtempSync(join(tmpdir(), "survey-fc-home-"))
-    const result = await runCli(["scrape", '{"url":"https://example.com"}'], {
+    // map is keyed-only; scrape would use the keyless free tier.
+    const result = await runCli(["map", '{"url":"https://example.com"}'], {
       FIRECRAWL_API_KEY: undefined,
       FIRECRAWL_API_BASE_URL: "http://127.0.0.1:1",
       SURVEY_HOME: surveyHome,

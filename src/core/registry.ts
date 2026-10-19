@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Schema } from "effect"
+import { Context, Effect, FileSystem, Schema } from "effect"
 
 import { CommandInputError, MissingApiKeyError } from "./errors"
 import { decodeUnknownJsonText } from "./json"
@@ -32,6 +32,7 @@ export const Capability = Schema.Literals([
   "code_context",
   "entity_search",
   "files",
+  "papers",
   "browser",
 ])
 export type Capability = typeof Capability.Type
@@ -60,7 +61,8 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     envVar: "EXA_API_KEY",
     baseUrlEnv: "EXA_API_BASE_URL",
     defaultBaseUrl: "https://api.exa.ai",
-    keyHint: "Export EXA_API_KEY from your Exa API settings.",
+    keyHint:
+      "Export EXA_API_KEY from your Exa API settings. Without a key, web-search and contents (by URL) use Exa's keyless hosted MCP tier.",
     auth: { kind: "header", header: "x-api-key" },
     capabilities: [
       "search",
@@ -70,14 +72,15 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "find_similar",
       "code_context",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   firecrawl: {
     name: "firecrawl",
     envVar: "FIRECRAWL_API_KEY",
     baseUrlEnv: "FIRECRAWL_API_BASE_URL",
     defaultBaseUrl: "https://api.firecrawl.dev/v2",
-    keyHint: "Export FIRECRAWL_API_KEY from your Firecrawl dashboard.",
+    keyHint:
+      "Export FIRECRAWL_API_KEY from your Firecrawl dashboard. Without a key, search, scrape, parse, interact, and the research index use the rate-limited keyless free tier.",
     auth: { kind: "bearer" },
     capabilities: [
       "fetch",
@@ -89,15 +92,17 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "batch",
       "interact",
       "deep_research",
+      "papers",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   parallel: {
     name: "parallel",
     envVar: "PARALLEL_API_KEY",
     baseUrlEnv: "PARALLEL_API_BASE_URL",
     defaultBaseUrl: "https://api.parallel.ai",
-    keyHint: "Export PARALLEL_API_KEY from your Parallel dashboard.",
+    keyHint:
+      "Export PARALLEL_API_KEY from your Parallel dashboard. Without a key, search and extract use Parallel's free Search MCP.",
     auth: { kind: "header", header: "x-api-key" },
     capabilities: [
       "search",
@@ -106,7 +111,7 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "entity_search",
       "monitor",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   keenable: {
     name: "keenable",
@@ -154,6 +159,15 @@ export const parseProvider = (value: string) =>
         }),
     ),
   )
+
+/**
+ * When true, provider configs ignore stored and env credentials, so every call
+ * goes through keyless public endpoints or fails with MissingApiKeyError.
+ * Unified commands set it for `tier: "free"` so no account credits are spent.
+ */
+export const KeylessOnly = Context.Reference<boolean>("survey/core/registry/KeylessOnly", {
+  defaultValue: () => false,
+})
 
 export interface ProviderConfig {
   readonly provider: ProviderName
@@ -236,6 +250,10 @@ export const loadProviderConfig = Effect.fn("loadProviderConfig")(function* (
     Bun.env[spec.baseUrlEnv] ?? spec.defaultBaseUrl,
     spec.baseUrlEnv,
   )
+
+  if (yield* KeylessOnly) {
+    return { provider, apiBaseUrl } satisfies ProviderConfig
+  }
 
   const envKey = Bun.env[spec.envVar]?.trim()
   if (envKey && envKey.length > 0) {

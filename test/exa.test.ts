@@ -1115,7 +1115,8 @@ describe("exa provider", () => {
   it.effect("fails with MissingApiKeyError when no credential is configured", () =>
     Effect.gen(function* () {
       const store = makeStore()
-      const outcome = yield* Effect.result(exaApi.webSearch({ query: "Effect" })).pipe(
+      // answer is keyed-only; webSearch would use the keyless MCP tier.
+      const outcome = yield* Effect.result(exaApi.answer({ query: "Effect" })).pipe(
         Effect.provide(testLayer(store)),
         withEnv({ EXA_API_KEY: undefined, EXA_API_BASE_URL: "http://127.0.0.1:1" }),
       )

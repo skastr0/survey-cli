@@ -36,9 +36,10 @@ survey pdf-inspector classify '{"path": "./paper.pdf"}'   # local: text-based vs
 **Unified capabilities** — the reason this CLI exists:
 
 ```bash
-survey search '{"query": "..."}'                        # fan out, dedupe by canonical URL, reciprocal-rank fusion
+survey search '{"query": "...", "tier": "free"}'        # fan out, dedupe by canonical URL, reciprocal-rank fusion
 survey compare '{"query": "..."}'                       # same fan-out, per-provider lists + overlap + consensus
-survey fetch '{"url": "..."}'                           # firecrawl → tinyfish → keenable → exa; stored in the corpus
+survey fetch '{"url": "..."}'                           # firecrawl → tinyfish → keenable → exa → parallel; stored in the corpus
+survey papers '{"query": "...", "question": "..."}'     # paper index search + full-text passages (keyless)
 survey extract '{"urls": [...], "schema": {...}}'       # file→llama, urls+schema→firecrawl, objective→parallel
 survey convert '{"path": "./paper.pdf"}'                # local-first document → Markdown (see Local tools)
 survey research '{"query": "...", "depth": "deep"}'     # multi-provider agents + citation intersection
@@ -135,14 +136,25 @@ Env vars win; `~/.config/survey/auth.json` is the fallback (`survey auth set`).
 
 | Provider | Env var | Notes |
 |---|---|---|
-| Exa | `EXA_API_KEY` | |
-| Firecrawl | `FIRECRAWL_API_KEY` | |
-| Parallel | `PARALLEL_API_KEY` | |
+| Exa | `EXA_API_KEY` | keyless web-search/contents via hosted MCP (`EXA_MCP_URL`) |
+| Firecrawl | `FIRECRAWL_API_KEY` | keyless search/scrape/parse/interact/research index (refused from VPN/proxy IPs) |
+| Parallel | `PARALLEL_API_KEY` | keyless search/extract via free Search MCP (`PARALLEL_SEARCH_MCP_URL`) |
 | Keenable | `KEENABLE_API_KEY` | public fallback without a key; `KEENABLE_TITLE` for title header |
 | LlamaCloud | `LLAMA_CLOUD_API_KEY` | |
 | TinyFish | `TINYFISH_API_KEY` | free search/fetch allowance still needs a key; `TINYFISH_{SEARCH,FETCH,BROWSER}_API_BASE_URL` |
 
 Every provider gets `*_API_BASE_URL` overrides for tests/mocks.
+
+### Free / keyless tier
+
+`src/core/tiers.ts` resolves every provider × capability to
+`{ available, mode: keyed|public|local|unavailable, cost: free|paid }`;
+`survey doctor` shows it live (`free_capabilities`), `survey capabilities` shows the matrix.
+Keyless responses carry `auth_mode: "public"` (plus `ignored_options` when an MCP tool
+cannot honor an input). Pass `"tier": "free"` to `search`, `fetch`, `research`, `verify`,
+or `papers` to route only to keyless/local access — configured keys are hidden, so no
+account credits are spent. `research`/`verify` take `"domain": "academic"` (or `auto`)
+to consult the Firecrawl Research Index.
 
 ## Discovery
 

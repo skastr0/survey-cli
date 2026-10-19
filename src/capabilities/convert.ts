@@ -8,7 +8,7 @@ import { makeOneOrManyCommand } from "../local/command"
 import { registerContract } from "../core/discovery"
 import { LocalToolError, LocalToolUnavailableError } from "../core/errors"
 import { rememberDocument } from "../core/corpus"
-import { loadProviderConfig } from "../core/registry"
+import { providerAccess } from "../core/tiers"
 import {
   documentSourceFields,
   extensionHint,
@@ -68,8 +68,8 @@ const pagesMarkdown = (result: Record<string, unknown>) => {
     .join("\n\n")
 }
 
-const hostedAvailable = loadProviderConfig("llama").pipe(
-  Effect.map((config) => config.credential !== undefined),
+const hostedAvailable = providerAccess("llama", "parse").pipe(
+  Effect.map((access) => access.available),
   Effect.orElseSucceed(() => false),
 )
 

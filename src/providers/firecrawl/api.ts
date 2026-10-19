@@ -3,11 +3,12 @@ import { basename, extname, resolve } from "node:path"
 import { Effect, FileSystem, Schema } from "effect"
 
 import { CommandInputError, JobWaitTimeoutError } from "../../core/errors"
-import { requestJson } from "../../core/http"
+import { requestJson, requestJsonOptionalAuth } from "../../core/http"
 import { summarizeBatchResults, type BatchResultItem, type BatchSummary } from "../../core/batch"
 import { setExitCode, toErrorDetails } from "../../core/output"
 import { loadProviderConfig } from "../../core/registry"
 import type {
+  AuthMode,
   AgentEventsInput,
   AgentListInput,
   AgentStartInput,
@@ -26,6 +27,10 @@ import type {
   ParseInput,
   ProviderJobKind,
   ProviderJobSnapshot,
+  ResearchInspectPaperInput,
+  ResearchReadPaperInput,
+  ResearchRelatedPapersInput,
+  ResearchSearchPapersInput,
   ScrapeInput,
   SearchInput,
   WaitInput,
@@ -686,6 +691,18 @@ export const validateConcurrency = (concurrency: number) =>
     ? Effect.succeed(concurrency)
     : failInput("concurrency", "concurrency must be at least 1")
 
+/**
+ * Keyless-capable call (search, scrape, parse, interact, research index): no
+ * key means the rate-limited free tier. Object payloads gain `auth_mode`.
+ */
+const withAuthMode = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const config = yield* loadProviderConfig("firecrawl")
+    const authMode: AuthMode = config.credential === undefined ? "public" : "keyed"
+    const data = yield* effect
+    return isRecord(data) ? { ...data, auth_mode: authMode } : data
+  })
+
 /* ------------------------------------------------------------------------ */
 /* Provider calls                                                            */
 /* ------------------------------------------------------------------------ */
@@ -727,7 +744,7 @@ export const scrape = (input: ScrapeInput) =>
   Effect.gen(function* () {
     const options = yield* buildScrapeOptions(input)
 
-    return yield* requestJson({
+    return yield* withAuthMode(requestJsonOptionalAuth({
       provider: "firecrawl",
       method: "POST",
       path: "/scrape",
@@ -736,7 +753,7 @@ export const scrape = (input: ScrapeInput) =>
         ...options,
       },
       responseSchema: unknownResponse,
-    })
+    }))
   })
 
 export const runScrapeCommand = (
@@ -985,7 +1002,7 @@ export const searchWeb = (input: SearchInput) =>
         ? undefined
         : yield* buildScrapeOptions(input.scrape_options)
 
-    return yield* requestJson({
+    return yield* withAuthMode(requestJsonOptionalAuth({
       provider: "firecrawl",
       method: "POST",
       path: "/search",
@@ -1017,7 +1034,7 @@ export const searchWeb = (input: SearchInput) =>
         ...(scrapeOptions !== undefined ? { scrapeOptions } : {}),
       },
       responseSchema: unknownResponse,
-    })
+    }))
   })
 
 export const runSearchCommand = (
@@ -1169,13 +1186,13 @@ export const parseFile = (input: ParseInput) =>
       )
     }
 
-    return yield* requestJson({
+    return yield* withAuthMode(requestJsonOptionalAuth({
       provider: "firecrawl",
       method: "POST",
       path: "/parse",
       formData,
       responseSchema: unknownResponse,
-    })
+    }))
   })
 
 export const runParseCommand = (
@@ -1327,7 +1344,7 @@ export const agentList = (input: AgentListInput) =>
   })
 
 export const interactExecute = (input: InteractExecuteInput) =>
-  requestJson({
+  withAuthMode(requestJsonOptionalAuth({
     provider: "firecrawl",
     method: "POST",
     path: `/scrape/${encodeURIComponent(input.id)}/interact`,
@@ -1339,10 +1356,10 @@ export const interactExecute = (input: InteractExecuteInput) =>
       ...(input.origin !== undefined ? { origin: input.origin } : {}),
     },
     responseSchema: unknownResponse,
-  })
+  }))
 
 export const interactStop = (input: JobIdInput) =>
-  requestJson({
+  requestJsonOptionalAuth({
     provider: "firecrawl",
     method: "DELETE",
     path: `/scrape/${encodeURIComponent(input.id)}/interact`,
@@ -1356,6 +1373,76 @@ export const interactStop = (input: JobIdInput) =>
       provider_response: response,
     })),
   )
+
+/* ------------------------------------------------------------------------ */
+/* Research Index                                                            */
+/* ------------------------------------------------------------------------ */
+
+/** Paper refs keep `:` literal (arxiv:1706.03762) but escape `/` in DOIs. */
+const paperPath = (id: string, suffix = "") =>
+  `/search/research/papers/${encodeURIComponent(id).replace(/%3A/gi, ":")}${suffix}`
+
+export const researchSearchPapers = (input: ResearchSearchPapersInput) =>
+  withAuthMode(requestJsonOptionalAuth({
+    provider: "firecrawl",
+    method: "GET",
+    path: "/search/research/papers",
+    urlParams: {
+      query: input.query,
+      k: input.k,
+      authors: input.authors,
+      categories: input.categories,
+      from: input.from,
+      to: input.to,
+    },
+    responseSchema: unknownResponse,
+  }))
+
+export const researchInspectPaper = (input: ResearchInspectPaperInput) =>
+  withAuthMode(requestJsonOptionalAuth({
+    provider: "firecrawl",
+    method: "GET",
+    path: paperPath(input.id),
+    responseSchema: unknownResponse,
+  }))
+
+export const researchReadPaper = (input: ResearchReadPaperInput) =>
+  withAuthMode(requestJsonOptionalAuth({
+    provider: "firecrawl",
+    method: "GET",
+    path: paperPath(input.id),
+    urlParams: { query: input.query, k: input.k },
+    responseSchema: unknownResponse,
+  }))
+
+export const researchRelatedPapers = (input: ResearchRelatedPapersInput) =>
+  withAuthMode(requestJsonOptionalAuth({
+    provider: "firecrawl",
+    method: "GET",
+    path: paperPath(input.id, "/similar"),
+    urlParams: {
+      intent: input.intent,
+      mode: input.mode,
+      k: input.k,
+      rerank: input.rerank,
+      anchor: input.anchor,
+    },
+    responseSchema: unknownResponse,
+  }))
+
+export const runResearchCommand = <A extends { readonly id?: string; readonly query?: string }, E, R>(
+  input: A | ReadonlyArray<A>,
+  concurrency: number,
+  run: (input: A) => Effect.Effect<unknown, E, R>,
+) =>
+  isInputArray(input)
+    ? runLocalBatch(
+        input,
+        concurrency,
+        (item) => (item.id !== undefined ? { id: item.id } : { query: item.query ?? "" }),
+        run,
+      )
+    : run(input)
 
 /**
  * Poll a job's status URL until it reaches a terminal state.

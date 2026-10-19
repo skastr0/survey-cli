@@ -11,6 +11,10 @@ import {
   JobIdInputSchema,
   MapCommandInputSchema,
   ParseCommandInputSchema,
+  ResearchInspectPaperCommandInputSchema,
+  ResearchReadPaperCommandInputSchema,
+  ResearchRelatedPapersCommandInputSchema,
+  ResearchSearchPapersCommandInputSchema,
   ScrapeCommandInputSchema,
   SearchCommandInputSchema,
   WaitInputSchema,
@@ -24,7 +28,7 @@ registerContracts([
   {
     command: "firecrawl scrape",
     description:
-      "Scrape one URL or an ordered local batch of URL scrape objects. Formats: markdown, summary, html, rawHtml, rawBase64, links, images, branding, product, menu, audio, video plus json/screenshot/changeTracking/question/highlights options.",
+      "Scrape one URL or an ordered local batch of URL scrape objects. Formats: markdown, summary, html, rawHtml, rawBase64, links, images, branding, product, menu, audio, video plus json/screenshot/changeTracking/question/highlights options. Works without FIRECRAWL_API_KEY on the rate-limited keyless free tier; responses carry auth_mode keyed|public.",
     inputSchema: ScrapeCommandInputSchema,
     batch: true,
     examples: [
@@ -87,7 +91,7 @@ registerContracts([
   {
     command: "firecrawl search",
     description:
-      "Search the web with Firecrawl v2, optionally scraping result pages. Accepts one object or an ordered local array.",
+      "Search the web with Firecrawl v2, optionally scraping result pages. Accepts one object or an ordered local array. Works without FIRECRAWL_API_KEY on the rate-limited keyless free tier; responses carry auth_mode keyed|public.",
     inputSchema: SearchCommandInputSchema,
     batch: true,
     examples: [
@@ -108,7 +112,7 @@ registerContracts([
   {
     command: "firecrawl parse",
     description:
-      "Parse a local file (PDF, Office, HTML, and more) through Firecrawl /v2/parse multipart upload. Accepts one object or an ordered local array.",
+      "Parse a local file (PDF, Office, HTML, and more) through Firecrawl /v2/parse multipart upload. Accepts one object or an ordered local array. Works without FIRECRAWL_API_KEY on the rate-limited keyless free tier; responses carry auth_mode keyed|public.",
     inputSchema: ParseCommandInputSchema,
     batch: true,
     examples: [
@@ -365,7 +369,7 @@ registerContracts([
   {
     command: "firecrawl interact execute",
     description:
-      "Execute a prompt or code in the browser session bound to a scrape job. id is data.metadata.scrapeId from a prior scrape; provide prompt or code, not both.",
+      "Execute a prompt or code in the browser session bound to a scrape job. id is data.metadata.scrapeId from a prior scrape; provide prompt or code, not both. Works without FIRECRAWL_API_KEY on the rate-limited keyless free tier; responses carry auth_mode keyed|public.",
     inputSchema: InteractExecuteInputSchema,
     orbit: ["stop"],
     examples: [
@@ -391,5 +395,75 @@ registerContracts([
     command: "firecrawl interact stop",
     description: "Stop the interactive browser session bound to a scrape job.",
     inputSchema: JobIdInputSchema,
+  },
+  {
+    command: "firecrawl research search-papers",
+    description:
+      "GET /search/research/papers: ranked papers (paperId, primaryId such as arxiv:<id>/pmid:<id>/pmcid:<id>/doi:<id>, ids, title, abstract, score, signals) from ~43M arXiv/PubMed/bioRxiv/medRxiv abstracts. Keyless; a key only raises rate limits. Sources are recorded under primaryId. Accepts one object or an ordered local array.",
+    inputSchema: ResearchSearchPapersCommandInputSchema,
+    batch: true,
+    orbit: ["inspect-paper", "read-paper", "related-papers"],
+    examples: [
+      { name: "paper search", input: { query: "diffusion models image synthesis", k: 10 } },
+      {
+        name: "filtered paper search",
+        input: {
+          query: "protein structure prediction",
+          categories: ["q-bio.BM"],
+          from: "2021-01-01",
+          k: 20,
+        },
+      },
+    ],
+  },
+  {
+    command: "firecrawl research inspect-paper",
+    description:
+      "GET /search/research/papers/{id}: metadata for a paperId or primaryId (title, abstract, authors, categories, createdDate, updateDate, ids). Keyless.",
+    inputSchema: ResearchInspectPaperCommandInputSchema,
+    batch: true,
+    orbit: ["read-paper", "related-papers"],
+    examples: [
+      { name: "inspect by arxiv id", input: { id: "arxiv:1706.03762" } },
+      { name: "inspect several", input: [{ id: "arxiv:1706.03762" }, { id: "arxiv:2105.05233" }] },
+    ],
+  },
+  {
+    command: "firecrawl research read-paper",
+    description:
+      "GET /search/research/papers/{id}?query=...: top full-text passages (text, score; k 1-50, default 4) answering a question. Keyless.",
+    inputSchema: ResearchReadPaperCommandInputSchema,
+    batch: true,
+    orbit: ["inspect-paper", "related-papers"],
+    examples: [
+      {
+        name: "read passages",
+        input: { id: "arxiv:1706.03762", query: "what is the attention mechanism", k: 4 },
+      },
+    ],
+  },
+  {
+    command: "firecrawl research related-papers",
+    description:
+      "GET /search/research/papers/{id}/similar: expand a seed paper by mode similar (co-citation and bibliographic coupling), citers, or references, ranked by intent; returns results, poolSize, truncated. Keyless.",
+    inputSchema: ResearchRelatedPapersCommandInputSchema,
+    batch: true,
+    orbit: ["inspect-paper", "read-paper"],
+    examples: [
+      {
+        name: "similar papers",
+        input: { id: "arxiv:1706.03762", intent: "efficient transformers", mode: "similar", k: 20 },
+      },
+      {
+        name: "citers with extra anchors",
+        input: {
+          id: "arxiv:2006.11239",
+          intent: "faster diffusion sampling",
+          mode: "citers",
+          anchor: ["arxiv:2105.05233"],
+          rerank: true,
+        },
+      },
+    ],
   },
 ])
