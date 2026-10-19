@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect"
 import type { AppEnv } from "../core/env"
 
 import { makeJsonCommand } from "../core/command"
+import { recallDocument, rememberDocument } from "../core/corpus"
 import { registerContract } from "../core/discovery"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
@@ -17,6 +18,9 @@ export const UnifiedFetchInput = Schema.Struct({
   url: Schema.NonEmptyString,
   format: Schema.optional(Schema.Literals(["markdown", "text", "html", "auto"])),
   timeout_ms: Schema.optional(Schema.Int),
+  max_age_ms: Schema.optional(Schema.Int),
+  store: Schema.optional(Schema.Boolean),
+  tags: Schema.optional(Schema.Array(Schema.String)),
   providers: Schema.optional(Schema.Array(ProviderName)),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -47,6 +51,18 @@ const extractContent = (payload: unknown): { content?: string; raw: unknown } =>
     }
   }
   return { raw: payload }
+}
+
+const titleOf = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== "object") return undefined
+  const record = payload as Record<string, unknown>
+  const data = record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : record
+  const metadata = data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {}
+  const results = Array.isArray(data.results) ? (data.results[0] as Record<string, unknown> | undefined) : undefined
+  for (const candidate of [data.title, metadata.title, results?.title]) {
+    if (typeof candidate === "string" && candidate.length > 0) return candidate
+  }
+  return undefined
 }
 
 const tryProvider = (
@@ -92,6 +108,22 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 ) {
   const order = input.providers ?? DEFAULT_ORDER
 
+  if (input.max_age_ms !== undefined) {
+    const cached = yield* recallDocument(input.url, input.max_age_ms)
+    if (cached !== undefined) {
+      return {
+        url: input.url,
+        provider: cached.doc.provider ?? "corpus",
+        content: cached.doc.content as string | null,
+        raw: null as unknown,
+        attempted: [] as Array<{ provider: string; ok: boolean; error?: unknown }>,
+        cached: true,
+        age_ms: cached.age_ms,
+        corpus: { id: cached.doc.id, version: cached.doc.version, changed: false, created: false },
+      }
+    }
+  }
+
   const attempted: Array<{ provider: string; ok: boolean; error?: unknown }> = []
   for (const provider of order) {
     if (!["firecrawl", "keenable", "exa"].includes(provider)) {
@@ -112,12 +144,34 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
     if (outcome._tag === "Success") {
       const value = outcome.success as { payload: unknown; content?: string }
       yield* recordSources(provider, [{ url: input.url }])
+      const remembered =
+        input.store === false || value.content === undefined
+          ? undefined
+          : yield* rememberDocument({
+              url: input.url,
+              content: value.content,
+              title: titleOf(value.payload),
+              provider,
+              kind: "web",
+              tags: input.tags,
+            })
       return {
         url: input.url,
         provider,
-        content: value.content ?? null,
+        content: (value.content ?? null) as string | null,
         raw: value.payload,
         attempted: [...attempted, { provider, ok: true }],
+        cached: false,
+        ...(remembered === undefined
+          ? {}
+          : {
+              corpus: {
+                id: remembered.id,
+                version: remembered.version,
+                changed: remembered.changed,
+                created: remembered.created,
+              },
+            }),
       }
     }
 
@@ -145,7 +199,8 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
-  description: "Fetch a URL with provider fallback (firecrawl → keenable → exa)",
+  description:
+    "Fetch a URL with provider fallback (firecrawl → keenable → exa). Every fetched page is stored in the local corpus (store:false opts out); max_age_ms serves a fresh-enough corpus copy without a provider call. corpus.changed reports content changes since the last fetch.",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
@@ -160,5 +215,7 @@ registerContract({
       name: "keenable first",
       input: { url: "https://example.com", providers: ["keenable", "exa"] },
     },
+    { name: "cache for an hour", input: { url: "https://effect.website", max_age_ms: 3600000 } },
+    { name: "watch for changes", input: { url: "https://example.com/pricing", tags: ["watch"] } },
   ],
 })
