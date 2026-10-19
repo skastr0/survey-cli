@@ -4,6 +4,7 @@ import type { AppEnv } from "../core/env"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
+import { groupSources, independenceView } from "../core/independence"
 import { toErrorDetails } from "../core/output"
 import { canonicalizeUrl, Store } from "../core/store"
 import { ProviderName } from "../core/registry"
@@ -121,7 +122,8 @@ const collectUrls = (value: unknown): Array<string> => {
     if (typeof record.url === "string" && /^https?:\/\//.test(record.url)) {
       urls.add(canonicalizeUrl(record.url))
     }
-    for (const key of ["citations", "sources", "results", "basis", "fields", "output"]) {
+    // `data`: exaApi.answer returns { answer, data: <raw response with citations> }.
+    for (const key of ["data", "citations", "sources", "results", "basis", "fields", "output"]) {
       if (key in record) visit(record[key], depth + 1)
     }
   }
@@ -206,14 +208,30 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
     .map(([canonical_url, count]) => ({ canonical_url, provider_count: count }))
 
   const okVerdicts = verdicts.filter((v) => v.ok)
+  // Confidence counts independent sources (distinct page, publisher and title
+  // groups), so several providers echoing one page or one site count once.
+  const independence = groupSources(
+    okVerdicts.flatMap((verdict) => verdict.sources.map((url) => ({ url, provider: verdict.provider }))),
+  )
+  const independent = independence.independent_sources
   const confidence =
     okVerdicts.length === 0
       ? "none"
       : okVerdicts.length === 1
-        ? "low"
-        : sharedSources.length > 0
+        ? independent >= 3
+          ? "medium"
+          : "low"
+        : independent >= 3
           ? "high"
-          : "medium"
+          : independent >= 2
+            ? "medium"
+            : "low"
+  const confidenceBasis = {
+    providers_succeeded: okVerdicts.length,
+    citations: independence.citations,
+    independent_sources: independent,
+    rule: "2+ providers: high at >=3 independent sources, medium at 2; one provider: medium at >=3; else low; none when no provider answered",
+  }
 
   const reportUrl = `survey://verify/${shortHash(input.claim)}`
   const remembered =
@@ -231,6 +249,8 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
             providers_attempted: verdicts.map((v) => v.provider),
             providers_succeeded: okVerdicts.map((v) => v.provider),
             shared_sources: sharedSources.length,
+            citations: independence.citations,
+            independent_sources: independent,
           },
         })
 
@@ -240,7 +260,11 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
     verdicts,
     shared_sources: sharedSources,
     corroborated_providers: okVerdicts.length,
+    citations: independence.citations,
+    independent_sources: independent,
+    source_groups: independenceView(independence).groups,
     confidence,
+    confidence_basis: confidenceBasis,
     domain: academic ? "academic" : "web",
     routing: routed.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
     skipped,
@@ -250,14 +274,16 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
 export const verifyCommand = makeJsonCommand({
   name: "verify",
   commandName: "verify",
-  description: "Check a claim across providers; confidence scales with source overlap",
+  description:
+    "Check a claim across providers; confidence scales with independent sources (same page, registrable domain or syndicated title count once)",
   schema: VerifyInput,
   run: (input) => verify(input),
 })
 
 registerContract({
   command: "verify",
-  description: "Cross-provider claim verification with citation overlap",
+  description:
+    "Cross-provider claim verification. Citations are grouped into independent sources by canonical URL, registrable domain (eTLD+1) and near-duplicate title; confidence uses independent_sources, not raw citations.",
   inputSchema: VerifyInput,
   examples: [
     {
