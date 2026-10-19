@@ -118,8 +118,18 @@ export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
           ...input.options,
         } as never) as Effect.Effect<unknown, unknown, AppEnv>
       }
+      const urls = input.urls ?? (input.url ? [input.url] : undefined)
+      // No URLs: Parallel's URL extract needs at least one, so an objective (or
+      // entity) alone runs as an objective search, which returns excerpts.
+      if (urls === undefined || urls.length === 0) {
+        return yield* parallelApi.search({
+          objective: input.objective,
+          search_queries: input.entity ? [input.entity] : undefined,
+          ...input.options,
+        } as never) as Effect.Effect<unknown, unknown, AppEnv>
+      }
       return yield* parallelApi.extract({
-        urls: input.urls ?? (input.url ? [input.url] : undefined),
+        urls,
         objective: input.objective,
         search_queries: input.entity ? [input.entity] : undefined,
         ...input.options,

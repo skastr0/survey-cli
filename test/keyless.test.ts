@@ -671,6 +671,29 @@ describe("unified error envelopes", () => {
     return { raw: exit, envelope: toErrorDetails(exit) }
   }
 
+  it("extract with only an objective runs a Parallel objective search", async () => {
+    // Result shape captured from live keyed POST /v1/search on 2026-10-19 (ids redacted).
+    await withStub(
+      {
+        "/parallel/v1/search": () => ({
+          body: {
+            search_id: "search_redacted",
+            session_id: "session_redacted",
+            results: [{ url: "https://bun.com/blog", title: "Bun Blog", publish_date: null, excerpts: ["Oven was founded in 2022."] }],
+          },
+        }),
+      },
+      { PARALLEL_API_KEY: "test-key" },
+      async (seen) => {
+        const result = (await run(unifiedExtract({ objective: "When was Oven founded?" }))) as { routed_to: string; result: { results: Array<{ url: string }> } }
+        expect(result.routed_to).toBe("parallel")
+        expect(result.result.results[0]?.url).toBe("https://bun.com/blog")
+        expect(seen.map((s) => s.pathname)).toEqual(["/parallel/v1/search"])
+        expect(seen[0]?.body).toMatchObject({ objective: "When was Oven founded?" })
+      },
+    )
+  })
+
   it("extract without a key fails with MissingApiKeyError naming the PROVIDERS env var", async () => {
     await withStub({}, {}, async (seen) => {
       const firecrawl = await failureOf(
