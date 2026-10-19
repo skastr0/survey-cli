@@ -16,8 +16,8 @@
     "@effect/platform-node-shared": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112"
   },
-  "version": "0.1.1",
-  "description": "Consolidated researcher toolkit CLI \u2014 Exa, Firecrawl, Parallel, Keenable, LlamaCloud behind one JSON-first Effect v4 binary.",
+  "version": "0.1.2",
+  "description": "Consolidated researcher toolkit CLI — Exa, Firecrawl, Parallel, Keenable, LlamaCloud behind one JSON-first Effect v4 binary.",
   "scripts": {
     "dev": "bun run ./src/cli.ts",
     "typecheck": "tsc --noEmit",
@@ -27,7 +27,8 @@
     "verify": "bun run typecheck && bun run test && bun run build",
     "build:npm": "bun scripts/build-npm.ts",
     "install:local": "bun scripts/install.ts",
-    "pack:dry-run": "bun run build:npm && npm pack --dry-run --workspaces --include-workspace-root=false 2>/dev/null || true"
+    "pack:dry-run": "bun run build:npm && npm pack --dry-run --workspaces --include-workspace-root=false 2>/dev/null || true",
+    "bump": "bun scripts/bump.ts"
   },
   "resolutions": {
     "@effect/platform-node-shared": "4.0.0-rc.112",
