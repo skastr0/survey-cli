@@ -147,12 +147,12 @@ const filesUploadCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("Upload one or more local files to LlamaCloud"))
+).pipe(Command.withDescription("Upload a local file to LlamaCloud for parse, extract, classify, split, or other purposes. Input: {file_path, purpose, file_name?}, or an array for batch. Returns the file record {id, name, purpose}."))
 
 const filesInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "llama files inspect",
-  description: "Get uploaded file metadata by file_id",
+  description: "Get uploaded file metadata. Input: {file_id}. Returns the provider file record {id, name, file_type, purpose, expires_at}.",
   schema: filesInspectInputSchema,
   run: (payload) =>
     Effect.gen(function* () {
@@ -176,7 +176,7 @@ const filesInspectCommand = makeJsonCommand({
 const filesContentCommand = makeJsonCommand({
   name: "content",
   commandName: "llama files content",
-  description: "Get a presigned download URL for an uploaded file",
+  description: "Get a presigned download URL for an uploaded file. Input: {file_id, expires_at_seconds?}. Returns {url, expires_at, form_fields?}.",
   schema: filesContentInputSchema,
   run: (payload) =>
     Effect.gen(function* () {
@@ -235,12 +235,12 @@ const filesListCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("List uploaded files with optional filters"))
+).pipe(Command.withDescription("List uploaded LlamaCloud files. Input (optional): {page_size?, page_token?, file_name?, file_ids?, external_file_id?}. Returns {items: [file records], next_page_token}."))
 
 const filesDeleteCommand = makeJsonCommand({
   name: "delete",
   commandName: "llama files delete",
-  description: "Delete an uploaded file",
+  description: "Delete an uploaded file (DELETE /api/v1/beta/files/{id}). Input: {file_id}. Returns {deleted: true, file_id}.",
   schema: filesDeleteInputSchema,
   run: (payload) =>
     Effect.gen(function* () {

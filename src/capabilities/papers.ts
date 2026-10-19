@@ -216,7 +216,7 @@ export const papersCommand = makeJsonCommand({
   name: "papers",
   commandName: "papers",
   description:
-    "Academic literature search over the Firecrawl Research Index (keyless): ranked papers with canonical ids, optional full-text passage reads for a question, arXiv web fallback",
+    "Search ~43M papers (arXiv, PubMed, bioRxiv, medRxiv) via the keyless Firecrawl Research Index, or read one by id; question adds full-text passages. Input: {query | id, question?, k?}. Returns {source, papers[]}.",
   schema: PapersInput,
   run: (input) => papers(input),
 })
@@ -224,7 +224,9 @@ export const papersCommand = makeJsonCommand({
 registerContract({
   command: "papers",
   description:
-    "Search ~43M papers (arXiv, PubMed, bioRxiv, medRxiv) via the keyless Firecrawl Research Index; with question, read the top papers' full-text passages. Papers carry primary_id (arxiv:/pmid:/pmcid:/doi:) and a resolvable url; sources are recorded under primary_id. Falls back to arXiv hits from unified web search when the index refuses (source: web_fallback).",
+    "Search ~43M papers (arXiv, PubMed, bioRxiv, medRxiv) via the keyless Firecrawl Research Index, or read one by id; question adds full-text passages. Input: {query | id, question?, k?}. Returns {source, papers[]}.",
+  output:
+    "{ query, id, question, source: research_index|web_fallback|none, auth_mode, fallback_providers?, count, papers[{ paper_id, primary_id, ids?, url, title, abstract, authors?, score, passages?, read_error? }], failures[{ stage, error }], skipped[{ provider, reason }] }",
   inputSchema: PapersInput,
   orbit: ["firecrawl research search-papers", "firecrawl research read-paper", "firecrawl research related-papers"],
   examples: [

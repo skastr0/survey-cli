@@ -23,7 +23,7 @@ const DedupeInput = Schema.Struct({
 export const sourcesList = makeJsonCommand({
   name: "list",
   commandName: "sources list",
-  description: "List sources in the ledger",
+  description: "List rows from the local source ledger, newest first (run_id returns that run's rows in insert order). Input: {provider?, canonical_url?, run_id?, limit? (200)}. Returns {sources[], count}.",
   schema: ListSourcesInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -44,7 +44,7 @@ export const sourcesList = makeJsonCommand({
 export const sourcesDedupe = makeJsonCommand({
   name: "dedupe",
   commandName: "sources dedupe",
-  description: "Group sources by canonical URL with provider provenance sets",
+  description: "Group ledger rows by canonical URL, most-corroborated first. Input: {min_providers? (1), limit? (rows scanned, 2000)}. Returns {groups[{canonical_url, providers, provider_count}], count}.",
   schema: DedupeInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -81,7 +81,7 @@ export const sourcesDedupe = makeJsonCommand({
 export const sourcesShow = makeJsonCommand({
   name: "show",
   commandName: "sources show",
-  description: "Show all ledger rows for one canonical URL",
+  description: "Show every ledger row (up to 100) for one URL after canonicalization. Input: {url}. Returns {canonical_url, sources[]}; fails with CommandInputError when nothing is recorded.",
   schema: ShowSourceInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -99,14 +99,15 @@ export const sourcesShow = makeJsonCommand({
 })
 
 export const sourcesCommand = Command.make("sources").pipe(
-  Command.withDescription("Source ledger — normalized provenance across providers"),
+  Command.withDescription("Source ledger: every URL providers returned, canonicalized with provenance; list, dedupe, show"),
   Command.withSubcommands([sourcesList, sourcesDedupe, sourcesShow]),
 )
 
 registerContracts([
   {
     command: "sources list",
-    description: "List sources in the ledger",
+    description: "List rows from the local source ledger, newest first (run_id returns that run's rows in insert order). Input: {provider?, canonical_url?, run_id?, limit? (200)}. Returns {sources[], count}.",
+    output: "{ sources[{ id, run_id, provider, url, canonical_url, title, snippet, content_hash, fetched_at }], count }",
     inputSchema: ListSourcesInput,
     examples: [
       { name: "recent", input: { limit: 20 } },
@@ -115,13 +116,15 @@ registerContracts([
   },
   {
     command: "sources dedupe",
-    description: "Group sources by canonical URL with provider provenance",
+    description: "Group ledger rows by canonical URL, most-corroborated first. Input: {min_providers? (1), limit? (rows scanned, 2000)}. Returns {groups[{canonical_url, providers, provider_count}], count}.",
+    output: "{ groups[{ canonical_url, providers[], provider_count, titles[], appearances }], count }",
     inputSchema: DedupeInput,
     examples: [{ name: "corroborated only", input: { min_providers: 2 } }],
   },
   {
     command: "sources show",
-    description: "Show ledger rows for a URL",
+    description: "Show every ledger row (up to 100) for one URL after canonicalization. Input: {url}. Returns {canonical_url, sources[]}; fails with CommandInputError when nothing is recorded.",
+    output: "{ canonical_url, sources[{ id, run_id, provider, url, canonical_url, title, snippet, content_hash, fetched_at }] }",
     inputSchema: ShowSourceInput,
     examples: [{ name: "by url", input: { url: "https://effect.website" } }],
   },

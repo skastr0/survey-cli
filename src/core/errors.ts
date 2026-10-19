@@ -40,6 +40,10 @@ export class CommandInputError extends Schema.TaggedError<CommandInputError>()(
     field: Schema.String,
     message: Schema.String,
     issues: Schema.optional(Schema.Array(InputIssue)),
+    /** Replaces the generic hint when the raiser knows what is wrong. */
+    hint: Schema.optional(Schema.String),
+    /** Replaces the `schema show` next_step when a concrete recovery call exists. */
+    next_step: Schema.optional(Schema.String),
   },
 ) {}
 
@@ -160,6 +164,17 @@ export class LocalToolError extends Schema.TaggedError<LocalToolError>()(
   },
 ) {}
 
+/** A well-formed request named something that does not exist (corpus document, run, monitor, file). */
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
+  "NotFoundError",
+  {
+    resource: Schema.String,
+    id: Schema.String,
+    message: Schema.String,
+    next_step: Schema.optional(Schema.String),
+  },
+) {}
+
 /** The argv itself could not be parsed: unknown command or flag, missing argument, bad flag value. */
 export class CliUsageError extends Schema.TaggedError<CliUsageError>()(
   "CliUsageError",
@@ -192,3 +207,27 @@ export type AppError =
   | LocalToolUnavailableError
   | LocalToolError
   | CliUsageError
+  | NotFoundError
+
+/** Every error `type` an envelope can carry, with what it means for the caller. */
+export const ERROR_TYPES: Readonly<Record<AppError["_tag"] | "UnexpectedError" | "InterruptedError" | "TimeoutError", string>> = {
+  CliUsageError: "argv could not be parsed (unknown command/flag, missing argument); fix the invocation",
+  JsonInputError: "payload is empty, not JSON, unreadable (@file/stdin), or does not match the schema (details.issues)",
+  CommandInputError: "payload decoded but a field value is unacceptable (details.field)",
+  NotFoundError: "the named resource does not exist (details.resource, details.id)",
+  ConfigurationError: "an environment or config value is invalid",
+  MissingApiKeyError: "the provider needs a key for this call; set details.env_var or choose a keyless route",
+  ApiRequestError: "network/transport failure reaching the provider; retryable",
+  ApiResponseError: "provider returned a non-2xx status; retryable for 408/409/429/5xx (details.status)",
+  ApiDecodeError: "provider response did not match the expected contract",
+  ProviderUnsupportedError: "the provider cannot perform this capability; pick another provider",
+  JobWaitTimeoutError: "a job did not finish within the wait budget; inspect or wait again (retryable)",
+  ArtifactWriteError: "could not write an artifact under the survey home",
+  StoreError: "local SQLite store failure",
+  McpError: "remote MCP transport or server failure; retryable",
+  LocalToolUnavailableError: "a local tool (anydoc, pdf-inspector) is not installed; see details.install_hint",
+  LocalToolError: "a local tool rejected the document (details.code, e.g. needsOcr)",
+  TimeoutError: "a composed call (pipe step, MCP tool) exceeded its timeout; retryable",
+  UnexpectedError: "a survey defect; details.trace has the cause",
+  InterruptedError: "the command was interrupted before finishing; retryable",
+}

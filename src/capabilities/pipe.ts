@@ -220,14 +220,17 @@ export const pipeCommand = makeJsonCommand({
   name: "pipe",
   commandName: "pipe",
   description:
-    "Run a multi-step pipeline of survey commands in one call. Steps reference earlier results with $.<id>.data… paths (keys, [n], [*], [a:b]) or {{ }} templates; foreach fans a step out over an array ($item/$index) with bounded concurrency; if skips a step when its reference is falsy; select projects a step's envelope; output shapes the final result.",
+    "Run several survey commands in one call. Input: {steps[{id, command, input?, foreach?, if?, select?, on_error?}], vars?, output?}; inputs reference $.<id>.data paths or {{ }} templates. Returns {ok, steps, results | output}.",
   schema: PipeInput,
   run: (input) => runPipeline(input),
 })
 
 registerContract({
   command: "pipe",
-  description: "Compose survey commands into one declarative pipeline",
+  description:
+    "Run several survey commands in one call. Input: {steps[{id, command, input?, foreach?, if?, select?, on_error?}], vars?, output?}; inputs reference $.<id>.data paths or {{ }} templates. Returns {ok, steps, results | output}.",
+  output:
+    "{ ok, stopped_at?, steps[{ id, command, ok, skipped?, duration_ms, items?, error_count?, error? }], results? | output? }; without an output template, results maps vars and each step id to its envelope { ok, command, data, error? } (foreach steps: data[], items[], error_count, truncated_items)",
   inputSchema: PipeInput,
   examples: [
     {

@@ -281,7 +281,7 @@ const parseCreateCommand = Command.make(
       }),
     ),
 ).pipe(
-  Command.withDescription("Start a parse job from a file_id or source_url"),
+  Command.withDescription("Start a LlamaParse v2 job from exactly one of file_id or source_url. Input: {file_id|source_url, tier?, version?}. Returns the job {id, status}; --wait returns the parse result instead."),
 )
 
 const parseUploadCommand = Command.make(
@@ -336,7 +336,7 @@ const parseUploadCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Upload a local file and start a parse job in one multipart request",
+    "Upload a local file and start a parse job in one multipart request. Input: {file_path, tier?, version?}. Returns the job {id, status}; poll with llama parse wait or pass --wait.",
   ),
 )
 
@@ -370,12 +370,12 @@ const parseListCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("List parse jobs"))
+).pipe(Command.withDescription("List LlamaParse jobs. Input (optional): {page_size?, page_token?, status?}. Returns {items: [jobs {id, status, tier}], next_page_token}."))
 
 const parseResultCommand = makeJsonCommand({
   name: "result",
   commandName: "llama parse result",
-  description: "Get parse job status and optional expanded results",
+  description: "Get a parse job's status and expanded results once. Input: {job_id, expand?} (e.g. markdown, text, items). Returns {job: {id, status}, markdown?, text?, items?, metadata?}.",
   schema: parseResultInputSchema,
   run: (payload) =>
     Effect.gen(function* () {
@@ -432,7 +432,7 @@ const parseWaitCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Poll a parse job until COMPLETED, FAILED, or CANCELLED",
+    "Poll a parse job until COMPLETED; fails on FAILED, CANCELLED, or timeout. Input: {job_id, expand?, timeout_seconds?}. Returns the parse result {job, markdown?}; default expand markdown.",
   ),
 )
 
@@ -496,7 +496,7 @@ const parseRunCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Upload or start a parse job and wait for markdown results",
+    "Parse a local file, URL, or file_id and wait. Input: one of {file_path, file_id, source_url}, plus tier?, expand?. Returns the result {job, markdown?|text?}; default expand markdown, text for fast tier.",
   ),
 )
 
@@ -518,7 +518,7 @@ const parseVersionsCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("List available LlamaParse tier versions"))
+).pipe(Command.withDescription("List available LlamaParse tier versions (GET /api/v2/parse/versions). Input (optional): {organization_id?, project_id?}. Returns the raw provider payload."))
 
 export const parseCommand = Command.make("parse").pipe(
   Command.withDescription("LlamaParse v2 jobs"),

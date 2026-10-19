@@ -84,7 +84,7 @@ const tinyfishCreate = (input: MonitorCreateInput) =>
 const monitorCreate = makeJsonCommand({
   name: "create",
   commandName: "monitor create",
-  description: "Create a monitor (Parallel GA monitors, or TinyFish with provider: tinyfish)",
+  description: "Create a scheduled monitor; provider parallel (default) or tinyfish. Input: {type, query?|objective?, cadence?, webhook_url?}; tinyfish: type fetch|search, config, schedule_cron. Returns {monitor, run_id}.",
   schema: MonitorCreateInput,
   run: (input) =>
     input.provider === "tinyfish" ? tinyfishCreate(input) : Effect.gen(function* () {
@@ -113,7 +113,7 @@ const monitorCreate = makeJsonCommand({
 const monitorList = makeJsonCommand({
   name: "list",
   commandName: "monitor list",
-  description: "List monitors",
+  description: "List monitors for one provider. Input: {provider? parallel|tinyfish (default parallel)}. Parallel returns {monitor_count, monitors[], next_cursor?}; TinyFish its raw list.",
   schema: MonitorListInput,
   run: (input) =>
     (input.provider === "tinyfish" ? tinyfishApi.monitorList : parallelApi.monitorList) as Effect.Effect<unknown, unknown, AppEnv>,
@@ -122,7 +122,7 @@ const monitorList = makeJsonCommand({
 const monitorInspect = makeJsonCommand({
   name: "inspect",
   commandName: "monitor inspect",
-  description: "Inspect a monitor",
+  description: "Inspect one monitor's configuration and status. Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, type, query, status, cadence, ...}; TinyFish its raw record.",
   schema: MonitorIdInput,
   run: (input) =>
     (input.provider === "tinyfish"
@@ -133,7 +133,7 @@ const monitorInspect = makeJsonCommand({
 const monitorEvents = makeJsonCommand({
   name: "events",
   commandName: "monitor events",
-  description: "Fetch monitor events",
+  description: "Fetch a monitor's events. Input: {monitor_id, provider?}. Returns Parallel's raw events; TinyFish has no run-history endpoint, so it returns {supported: false, reason, alternatives}.",
   schema: MonitorIdInput,
   run: (input) =>
     (input.provider === "tinyfish"
@@ -144,7 +144,7 @@ const monitorEvents = makeJsonCommand({
 const monitorTrigger = makeJsonCommand({
   name: "trigger",
   commandName: "monitor trigger",
-  description: "Trigger a monitor now",
+  description: "Trigger a monitor run now instead of waiting for its schedule. Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, triggered}; TinyFish its raw run.",
   schema: MonitorIdInput,
   run: (input) =>
     (input.provider === "tinyfish"
@@ -155,7 +155,7 @@ const monitorTrigger = makeJsonCommand({
 const monitorCancel = makeJsonCommand({
   name: "cancel",
   commandName: "monitor cancel",
-  description: "Cancel a monitor (TinyFish: pauses it; use tinyfish monitor delete to remove)",
+  description: "Cancel a monitor; TinyFish pauses it instead (tinyfish monitor delete removes it). Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, cancelled, monitor}.",
   schema: MonitorIdInput,
   run: (input) =>
     (input.provider === "tinyfish"
@@ -164,7 +164,7 @@ const monitorCancel = makeJsonCommand({
 })
 
 export const monitorCommand = Command.make("monitor").pipe(
-  Command.withDescription("Normalized provider monitors (Parallel default, TinyFish via provider: tinyfish)"),
+  Command.withDescription("Scheduled web monitors across providers (Parallel default, TinyFish via provider: tinyfish): create, list, inspect, events, trigger, cancel"),
   Command.withSubcommands([
     monitorCreate,
     monitorList,
@@ -181,8 +181,8 @@ const TINYFISH_MONITOR_ID = { provider: "tinyfish", monitor_id: "mon_abc123" }
 registerContracts([
   {
     command: "monitor create",
-    description:
-      "Create a monitor. Default provider parallel; provider: tinyfish takes type fetch|search, config, schedule_cron (or cadence hourly|daily|weekly), name, purpose, webhook_url.",
+    description: "Create a scheduled monitor; provider parallel (default) or tinyfish. Input: {type, query?|objective?, cadence?, webhook_url?}; tinyfish: type fetch|search, config, schedule_cron. Returns {monitor, run_id}.",
+    output: "Parallel: { monitor, run_id } (monitor is the raw Parallel response, run_id the tracked survey run); tinyfish: { monitor, provider: \"tinyfish\" }",
     inputSchema: MonitorCreateInput,
     examples: [
       { name: "parallel monitor", input: { type: "event_stream", query: "new Bun releases", cadence: "daily" } },
@@ -204,31 +204,36 @@ registerContracts([
   },
   {
     command: "monitor list",
-    description: "List monitors for one provider (default parallel)",
+    description: "List monitors for one provider. Input: {provider? parallel|tinyfish (default parallel)}. Parallel returns {monitor_count, monitors[], next_cursor?}; TinyFish its raw list.",
+    output: "Parallel: { monitor_count, monitors[{ monitor_id, type, query, status, frequency, cadence, processor, metadata, webhook }], next_cursor? }; tinyfish: the raw monitor-list JSON",
     inputSchema: MonitorListInput,
     examples: [{ name: "parallel", input: {} }, { name: "tinyfish", input: { provider: "tinyfish" } }],
   },
   {
     command: "monitor inspect",
-    description: "Inspect a monitor",
+    description: "Inspect one monitor's configuration and status. Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, type, query, status, cadence, ...}; TinyFish its raw record.",
+    output: "Parallel: { monitor_id, type?, query?, status, frequency?, cadence?, processor?, metadata?, webhook?: { url, event_types? } }; tinyfish: the raw monitor JSON",
     inputSchema: MonitorIdInput,
     examples: [{ name: "parallel", input: PARALLEL_MONITOR_ID }, { name: "tinyfish", input: TINYFISH_MONITOR_ID }],
   },
   {
     command: "monitor events",
-    description: "Fetch monitor events (TinyFish has no run-history endpoint: returns supported:false)",
+    description: "Fetch a monitor's events. Input: {monitor_id, provider?}. Returns Parallel's raw events; TinyFish has no run-history endpoint, so it returns {supported: false, reason, alternatives}.",
+    output: "Parallel: the raw events response; tinyfish: { provider, id, capability, supported: false, reason, alternatives[] }",
     inputSchema: MonitorIdInput,
     examples: [{ name: "parallel", input: PARALLEL_MONITOR_ID }, { name: "tinyfish", input: TINYFISH_MONITOR_ID }],
   },
   {
     command: "monitor trigger",
-    description: "Trigger a monitor run now",
+    description: "Trigger a monitor run now instead of waiting for its schedule. Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, triggered}; TinyFish its raw run.",
+    output: "Parallel: { monitor_id, triggered: true }; tinyfish: the raw run JSON (URLs in it are recorded as sources)",
     inputSchema: MonitorIdInput,
     examples: [{ name: "parallel", input: PARALLEL_MONITOR_ID }, { name: "tinyfish", input: TINYFISH_MONITOR_ID }],
   },
   {
     command: "monitor cancel",
-    description: "Cancel a monitor (TinyFish: pauses it)",
+    description: "Cancel a monitor; TinyFish pauses it instead (tinyfish monitor delete removes it). Input: {monitor_id, provider? (default parallel)}. Parallel returns {monitor_id, cancelled, monitor}.",
+    output: "Parallel: { monitor_id, cancelled: true, monitor }; tinyfish: the raw response to the status: paused update",
     inputSchema: MonitorIdInput,
     examples: [{ name: "parallel", input: PARALLEL_MONITOR_ID }, { name: "tinyfish", input: TINYFISH_MONITOR_ID }],
   },

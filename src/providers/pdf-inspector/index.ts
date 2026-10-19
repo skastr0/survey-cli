@@ -29,7 +29,7 @@ import {
 import "./capabilities"
 
 export const pdfInspectorCommand = Command.make("pdf-inspector").pipe(
-  Command.withDescription("Local PDF classification and text extraction (@firecrawl/pdf-inspector): no network, no key"),
+  Command.withDescription("Local PDF tools (@firecrawl/pdf-inspector, no network, no key): classify, inspect, extract Markdown, per-page text, positions, regions, tables, selective OCR"),
   Command.withSubcommands([
     classifyCommand,
     inspectCommand,

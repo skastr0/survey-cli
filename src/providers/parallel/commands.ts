@@ -424,7 +424,7 @@ const applyPolicy = (command: string, output: "inline" | "artifact" | "auto") =>
 export const parallelSearchCommand = makeBatchJsonCommand({
   name: "search",
   commandName: "parallel search",
-  description: "Run one or more Parallel web searches (POST /v1/search)",
+  description: "Run Parallel web searches (POST /v1/search; keyless public MCP fallback without a key). Input: {objective?, search_queries?, mode?, max_results?}; array for batch. Returns per item {search_id, results}.",
   schema: SearchInput,
   run: (request) =>
     search(request).pipe(
@@ -447,7 +447,7 @@ export const parallelExtractCommand = makeBatchJsonCommand({
   name: "extract",
   commandName: "parallel extract",
   description:
-    "Extract content from URLs via Parallel Extract (POST /v1/extract)",
+    "Extract content from URLs via Parallel Extract (POST /v1/extract; keyless fallback without a key). Input: {urls, objective?, full_content?}; array for batch. Returns per item {extract_id, results, errors}.",
   schema: ExtractInput,
   run: (request) =>
     extract(request).pipe(
@@ -512,7 +512,7 @@ const deepResearchStart = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Start one or more Parallel Task API deep research runs",
+    "Submit Parallel Task Runs (deep research) without waiting. Input: {input, processor?, output_schema?}; array for batch. Returns per item {run_id, status, next_actions}; poll with deep-research check/wait.",
   ),
 )
 
@@ -540,14 +540,14 @@ const deepResearchRun = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Start a deep research run and poll until complete or timed out",
+    "Submit a Parallel Task Run and poll until complete or max_wait_seconds (default 120). Input: {input, processor?, output_schema?, max_wait_seconds?}. Returns {completed, run_id, status, output?, basis?}.",
   ),
 )
 
 const deepResearchInspect = makeJsonCommand({
   name: "inspect",
   commandName: "parallel deep-research inspect",
-  description: "Inspect a Parallel Task API run without fetching results",
+  description: "Inspect a Task Run without fetching results (GET /v1/tasks/runs/{run_id}). Input: {run_id}. Returns the raw provider run {run_id, status, is_active, processor}.",
   schema: DeepResearchCheckInput,
   run: (request) => getTaskRun(request.run_id),
 })
@@ -556,7 +556,7 @@ const deepResearchCheck = makeJsonCommand({
   name: "check",
   commandName: "parallel deep-research check",
   description:
-    "Check a Parallel Task API run and fetch results when complete",
+    "Check a Task Run once and fetch its result if completed. Input: {run_id, timeout_seconds?}. Returns {completed, run_id, status} plus output and basis when done, else next_actions.",
   schema: DeepResearchCheckInput,
   run: checkTaskRun,
 })
@@ -564,7 +564,7 @@ const deepResearchCheck = makeJsonCommand({
 const deepResearchWait = makeJsonCommand({
   name: "wait",
   commandName: "parallel deep-research wait",
-  description: "Wait for an existing Parallel Task API run",
+  description: "Poll an existing Task Run until complete or max_wait_seconds (default 120). Input: {run_id, max_wait_seconds?, poll_interval_seconds?}. Returns {completed, run_id, status, output?, basis?}.",
   schema: DeepResearchWaitInput,
   run: waitForTaskRun,
 })
@@ -572,7 +572,7 @@ const deepResearchWait = makeJsonCommand({
 const deepResearchEvents = makeJsonCommand({
   name: "events",
   commandName: "parallel deep-research events",
-  description: "Fetch Parallel Task API run SSE events",
+  description: "Read Task Run SSE events (parallel-beta events-sse-2025-07-24). Input: {run_id, timeout_seconds?, last_event_id?}. Returns {run_id, event_count, events}.",
   schema: DeepResearchEventsInput,
   run: getTaskRunEvents,
 })
@@ -655,7 +655,7 @@ const findAllStart = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Start one or more Parallel FindAll entity discovery runs",
+    "Submit Parallel FindAll entity discovery runs (/v1beta/findall/*). Input: {objective, entity_type?, match_conditions?, generator?, match_limit?}; array for batch. Returns per item {findall_id, next_actions}.",
   ),
 )
 
@@ -663,7 +663,7 @@ const findAllEntitySearch = makeBatchJsonCommand({
   name: "entity-search",
   commandName: "parallel findall entity-search",
   description:
-    "Run a synchronous FindAll entity search for people or companies",
+    "Run a synchronous ranked people or company search without per-candidate verification. Input: {entity_type: people|companies, objective, match_limit?}; array for batch. Returns {entity_set_id, entities}.",
   schema: FindAllEntitySearchInput,
   run: (request) =>
     entitySearch(request).pipe(
@@ -681,7 +681,7 @@ const findAllEntitySearch = makeBatchJsonCommand({
 const findAllInspect = makeJsonCommand({
   name: "inspect",
   commandName: "parallel findall inspect",
-  description: "Inspect a Parallel FindAll run",
+  description: "Inspect a FindAll run without fetching candidates. Input: {findall_id}. Returns the raw provider run {findall_id, status: {status, is_active, metrics}, generator}.",
   schema: FindAllCheckInput,
   run: (request) => getFindAllRun(request.findall_id),
 })
@@ -690,7 +690,7 @@ const findAllCheck = makeJsonCommand({
   name: "check",
   commandName: "parallel findall check",
   description:
-    "Check a Parallel FindAll run and fetch candidates when complete",
+    "Check a FindAll run once and fetch candidates when complete. Input: {findall_id}. Returns {completed, findall_id, status} plus candidates when done, else progress and next_actions.",
   schema: FindAllCheckInput,
   run: checkFindAllRun,
 })
@@ -698,7 +698,7 @@ const findAllCheck = makeJsonCommand({
 const findAllWait = makeJsonCommand({
   name: "wait",
   commandName: "parallel findall wait",
-  description: "Wait for an existing Parallel FindAll run",
+  description: "Poll a FindAll run until complete or max_wait_seconds (default 120). Input: {findall_id, max_wait_seconds?, poll_interval_seconds?}. Returns {completed, findall_id, status, candidates?}.",
   schema: FindAllWaitInput,
   run: waitForFindAllRun,
 })
@@ -706,7 +706,7 @@ const findAllWait = makeJsonCommand({
 const findAllEvents = makeJsonCommand({
   name: "events",
   commandName: "parallel findall events",
-  description: "Fetch Parallel FindAll SSE events",
+  description: "Read FindAll SSE events. Input: {findall_id, timeout_seconds?, last_event_id?}. Returns {findall_id, event_count, events}.",
   schema: FindAllEventsInput,
   run: getFindAllEvents,
 })
@@ -735,7 +735,7 @@ const findAllEnrich = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Add a Task-powered enrichment to an existing FindAll run",
+    "Add a Task-powered enrichment to an existing FindAll run. Input: {findall_id, output_schema: {json_schema}, processor?}. Returns {findall_id, schema} with the run's updated schema.",
   ),
 )
 
@@ -763,7 +763,7 @@ const findAllExtend = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Increase the match limit of an existing FindAll run",
+    "Increase the match limit of an existing FindAll run. Input: {findall_id, additional_match_limit}. Returns {findall_id, schema} with the updated match_limit.",
   ),
 )
 
@@ -791,7 +791,7 @@ const findAllCancel = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Cancel a Parallel FindAll run"))
+).pipe(Command.withDescription("Cancel a FindAll run (POST /v1beta/findall/runs/{id}/cancel). Input: {findall_id}. Returns {findall_id, cancelled: true, response}."))
 
 export const findAllCommand = Command.make("findall").pipe(
   Command.withDescription("Parallel FindAll entity discovery commands"),
@@ -849,7 +849,7 @@ const monitorCreate = Command.make(
         return yield* applyPolicy("parallel monitors create", output)(summary)
       }),
     ),
-).pipe(Command.withDescription("Create one or more Parallel monitors"))
+).pipe(Command.withDescription("Create scheduled web monitors (POST /v1/monitors). Input: {query, cadence?, type?, processor?, webhook_url?}; array for batch. Returns per item {monitor_id, status, cadence, next_actions}."))
 
 const monitorList = Command.make("list", { input: optionalJsonInputArg, output: outputFlag }, ({ input, output }) =>
   executeJsonCommand(
@@ -859,12 +859,12 @@ const monitorList = Command.make("list", { input: optionalJsonInputArg, output: 
       Effect.flatMap(applyPolicy("parallel monitors list", output)),
     ),
   ),
-).pipe(Command.withDescription("List Parallel monitors"))
+).pipe(Command.withDescription("List Parallel monitors (GET /v1/monitors). Input optional; must be {} if given. Returns {monitor_count, monitors, next_cursor?}."))
 
 const monitorInspect = makeJsonCommand({
   name: "inspect",
   commandName: "parallel monitors inspect",
-  description: "Inspect a Parallel monitor",
+  description: "Retrieve a monitor by id (GET /v1/monitors/{id}). Input: {monitor_id}. Returns the raw provider monitor {monitor_id, status, query, cadence, created_at}.",
   schema: MonitorIdInput,
   run: (request) => getMonitor(request.monitor_id),
 })
@@ -872,7 +872,7 @@ const monitorInspect = makeJsonCommand({
 const monitorEvents = makeJsonCommand({
   name: "events",
   commandName: "parallel monitors events",
-  description: "List Parallel monitor events or fetch one event group",
+  description: "List monitor events or fetch one event group. Input: {monitor_id, cursor?, limit?, event_group_id?}; Monitor V1 removed lookback_period. Returns {monitor_id, event_count, events}.",
   schema: MonitorEventsInput,
   run: (request) =>
     listMonitorEvents(request).pipe(
@@ -909,7 +909,7 @@ const monitorTrigger = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Enqueue a real off-schedule monitor run"))
+).pipe(Command.withDescription("Enqueue a real off-schedule monitor run (POST /v1/monitors/{id}/trigger). Input: {monitor_id}. Returns {monitor_id, triggered: true}."))
 
 const monitorCancel = Command.make(
   "cancel",
@@ -935,7 +935,7 @@ const monitorCancel = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Cancel a monitor to stop future executions"))
+).pipe(Command.withDescription("Cancel a monitor to stop future executions (POST /v1/monitors/{id}/cancel). Input: {monitor_id}. Returns {monitor_id, cancelled: true, monitor}."))
 
 export const monitorsCommand = Command.make("monitors").pipe(
   Command.withDescription("Parallel monitor commands"),

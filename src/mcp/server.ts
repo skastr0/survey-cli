@@ -72,6 +72,9 @@ const objectSchema = (contract: CommandContract): Record<string, unknown> => {
 
 const describe = (contract: CommandContract) => {
   const parts = [contract.description]
+  if (contract.output !== undefined) {
+    parts.push(`Returns data: ${contract.output}`)
+  }
   if (contract.batch === true) {
     parts.push("Batch command: pass one object (the tool input) — the CLI also accepts arrays.")
   }

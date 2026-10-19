@@ -153,8 +153,21 @@ export const toErrorDetails = (rawError: unknown, context?: ErrorContext): Error
           details: {
             field: error.field as string,
             ...(error.issues ? { issues: error.issues } : {}),
-            hint: "Correct the field value and rerun the command.",
-            next_step: inputContractStep(context),
+            hint: typeof error.hint === "string" ? error.hint : `The value of ${error.field as string} is not acceptable; correct it and rerun.`,
+            next_step: typeof error.next_step === "string" ? error.next_step : inputContractStep(context),
+            retryable: false,
+          },
+        }
+      }
+      case "NotFoundError": {
+        return {
+          type: error._tag,
+          message: error.message,
+          details: {
+            resource: error.resource as string,
+            id: error.id as string,
+            hint: `No ${error.resource as string} matches ${JSON.stringify(error.id)}; the request itself was well-formed.`,
+            ...(typeof error.next_step === "string" ? { next_step: error.next_step } : {}),
             retryable: false,
           },
         }

@@ -29,7 +29,9 @@ registerContracts([
   {
     command: "keenable search",
     description:
-      "Search the web with Keenable. Keyed POST /v1/search, or public POST /v1/search/public when no API key is configured. Accepts one object, one query string, or an array of objects or query strings. keenable_title/title are sent as X-Keenable-Title, not in the search body. mode=standard maps to realtime.",
+      "Search the web with Keenable (POST /v1/search, or /v1/search/public without a key). Input: {query, max_results?, site?, published_after?, mode?} or query string(s). Returns ranked results with url/title/snippet.",
+    output:
+      "Batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] } (always, even for one item); each data = { auth_mode: 'keyed'|'public', endpoint, title, data: { query, results[{ title, url, description?, snippet?, published_at?, acquired_at? }], mode? } }",
     inputSchema: SearchInputSchema,
     batch: true,
     examples: [
@@ -57,7 +59,9 @@ registerContracts([
   {
     command: "keenable fetch",
     description:
-      "Fetch page markdown with Keenable. Keyed GET /v1/fetch, or public GET /v1/fetch/public when no API key is configured. Accepts one object, one URL string, or an array of objects or URL strings. live=true fetches unindexed URLs; prompt returns LLM extraction output (max 2000 chars).",
+      "Fetch page markdown with Keenable (GET /v1/fetch, or /v1/fetch/public without a key). Input: {url, live?, max_chars?, prompt? (LLM extraction, max 2000 chars)} or URL string(s). Returns content + metadata.",
+    output:
+      "Batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] } (always, even for one item); each data = { auth_mode: 'keyed'|'public', endpoint, title, data: { url, content, title?, description?, author?, published_at? } }",
     inputSchema: FetchInputSchema,
     batch: true,
     examples: [
@@ -76,7 +80,9 @@ registerContracts([
   {
     command: "keenable select",
     description:
-      "Run a DuckDB SELECT over live web results via Keenable SELECT MCP (https://select.keenable.ai/mcp). Requires an API key; there is no public twin. query is one read-only DuckDB SELECT; WEB_SEARCH/WEB_FETCH/SEM_* operators run on the server. Accepts a SQL string as {query}. A later query can FROM a returned result_set_id for 30 days.",
+      "Run one read-only DuckDB SELECT over live web results via Keenable SELECT MCP (WEB_SEARCH/WEB_FETCH/SEM_* operators; API key required). Input: {query, show_preview?} or SQL string. Returns rows + result_set_id.",
+    output:
+      "Batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] } (always, even for one item); each data = { auth_mode: 'keyed', endpoint, tool, protocol_version, session_id?, is_error, content, text?, structured?, result_set_id? (FROM-able in later queries for 30 days) }",
     inputSchema: SelectInputSchema,
     batch: true,
     examples: [
@@ -98,7 +104,9 @@ registerContracts([
   {
     command: "keenable select-report",
     description:
-      "Ask Keenable SELECT to generate an HTML report from stored result set ids (MCP tool generate_html_report). Requires an API key. Reports can take minutes.",
+      "Generate an HTML report from stored SELECT result set ids (MCP tool generate_html_report; API key required; can take minutes). Input: {brief, result_set_ids[]}. Returns the MCP tool output with the report.",
+    output:
+      "Batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] } (always, even for one item); each data = { auth_mode: 'keyed', endpoint, tool, protocol_version, session_id?, is_error, content, text?, structured? } from generate_html_report",
     inputSchema: SelectReportInputSchema,
     batch: true,
     examples: [
@@ -114,7 +122,9 @@ registerContracts([
   {
     command: "keenable select-revoke",
     description:
-      "Revoke a previously generated Keenable SELECT HTML report (MCP tool revoke_html_report). Provide url or report_url. Requires an API key.",
+      "Revoke a previously generated Keenable SELECT HTML report (MCP tool revoke_html_report; API key required). Input: {url | report_url}. Returns the MCP tool output.",
+    output:
+      "Batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] } (always, even for one item); each data = { auth_mode: 'keyed', endpoint, tool, protocol_version, session_id?, is_error, content, text?, structured? } from revoke_html_report",
     inputSchema: SelectRevokeInputSchema,
     batch: true,
     examples: [
@@ -221,7 +231,7 @@ export const searchCommand = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Search the web with Keenable from JSON input"))
+).pipe(Command.withDescription("Search the web with Keenable. Input: {query, max_results?, site?, published_after?, mode?} or query string(s); arrays batch. Returns ranked results with url/title/snippet."))
 
 export const fetchCommand = Command.make(
   "fetch",
@@ -241,7 +251,7 @@ export const fetchCommand = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Fetch page content as markdown from JSON input"))
+).pipe(Command.withDescription("Fetch page markdown with Keenable. Input: {url, live?, max_chars?, prompt?} or URL string(s); arrays batch. Returns page content with title/author/published_at."))
 
 export const selectCommand = Command.make(
   "select",
@@ -266,7 +276,7 @@ export const selectCommand = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Run a Keenable SELECT SQL query over live web results"))
+).pipe(Command.withDescription("Run a read-only DuckDB SELECT over live web results via Keenable SELECT MCP (key required). Input: {query, show_preview?} or SQL string. Returns MCP tool output and a reusable result_set_id."))
 
 export const selectReportCommand = Command.make(
   "select-report",
@@ -290,7 +300,7 @@ export const selectReportCommand = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Generate a Keenable SELECT HTML report from result set ids"))
+).pipe(Command.withDescription("Generate a Keenable SELECT HTML report from result set ids (key required; can take minutes). Input: {brief, result_set_ids[]}. Returns the MCP tool output."))
 
 export const selectRevokeCommand = Command.make(
   "select-revoke",
@@ -314,4 +324,4 @@ export const selectRevokeCommand = Command.make(
         ),
       ),
     ),
-).pipe(Command.withDescription("Revoke a Keenable SELECT HTML report"))
+).pipe(Command.withDescription("Revoke a Keenable SELECT HTML report (key required). Input: {url | report_url}. Returns the MCP tool output."))

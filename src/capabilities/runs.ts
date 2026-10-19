@@ -142,7 +142,7 @@ const adapterFor = (run: { provider: string; kind: string }) =>
 export const runsList = makeJsonCommand({
   name: "list",
   commandName: "runs list",
-  description: "List tracked runs across all providers",
+  description: "List async provider runs tracked in the local registry, newest first. Input: {provider?, status?, limit? (default 100)}. Returns {runs[], count}.",
   schema: ListRunsInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -159,7 +159,7 @@ export const runsList = makeJsonCommand({
 export const runsInspect = makeJsonCommand({
   name: "inspect",
   commandName: "runs inspect",
-  description: "Inspect a run: local record + live provider status",
+  description: "Inspect one run: its local record plus a live provider status check, which also refreshes the stored status. Input: {id} or {provider, remote_id}. Returns {run, live}.",
   schema: RunIdInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -185,7 +185,7 @@ export const runsInspect = makeJsonCommand({
 export const runsWait = makeJsonCommand({
   name: "wait",
   commandName: "runs wait",
-  description: "Poll a run until terminal status",
+  description: "Poll a tracked run until it reaches a terminal status. Input: {id | provider+remote_id, interval_ms? (2000), timeout_ms? (300000)}. Returns {run, result, waited_ms}; fails with JobWaitTimeoutError on timeout.",
   schema: WaitInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -229,7 +229,7 @@ export const runsWait = makeJsonCommand({
 export const runsCancel = makeJsonCommand({
   name: "cancel",
   commandName: "runs cancel",
-  description: "Cancel a run where the provider supports it",
+  description: "Cancel a tracked run at its provider (exa agent, parallel monitor/findall, firecrawl batch/crawl/agent) and mark it canceled locally. Input: {id} or {provider, remote_id}. Returns {run_id, remote_id, result}.",
   schema: RunIdInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -252,7 +252,7 @@ export const runsCancel = makeJsonCommand({
 export const runsEvents = makeJsonCommand({
   name: "events",
   commandName: "runs events",
-  description: "Fetch provider events for a run",
+  description: "Fetch the provider's event log for a tracked run (exa agent, parallel monitor/findall). Input: {id} or {provider, remote_id}. Returns {run_id, remote_id, provider, events}.",
   schema: RunIdInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -271,7 +271,7 @@ export const runsEvents = makeJsonCommand({
 })
 
 export const runsCommand = Command.make("runs").pipe(
-  Command.withDescription("Unified run registry across all providers"),
+  Command.withDescription("Unified registry of async provider runs (agents, crawls, monitors, parse jobs): list, inspect, wait, cancel, events"),
   Command.withSubcommands([runsList, runsInspect, runsWait, runsCancel, runsEvents]),
 )
 
@@ -280,7 +280,8 @@ const RUN_ID_EXAMPLE = "srv_01j7x9v0m2n4p6q8r0s2t4v6w8"
 registerContracts([
   {
     command: "runs list",
-    description: "List tracked runs across all providers",
+    description: "List async provider runs tracked in the local registry, newest first. Input: {provider?, status?, limit? (default 100)}. Returns {runs[], count}.",
+    output: "{ runs[{ id, provider, kind, remote_id, status, payload, result_ref, created_at, updated_at }], count }; status is queued|running|succeeded|failed|canceled|unsupported, payload is the JSON-encoded original input",
     inputSchema: ListRunsInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [
@@ -290,7 +291,8 @@ registerContracts([
   },
   {
     command: "runs inspect",
-    description: "Inspect a run: local record + live provider status",
+    description: "Inspect one run: its local record plus a live provider status check, which also refreshes the stored status. Input: {id} or {provider, remote_id}. Returns {run, live}.",
+    output: "{ run: { id, provider, kind, remote_id, status, payload, result_ref, created_at, updated_at }, live }; live is the provider's raw check response, null when the run has no check endpoint, or { error } when the check failed",
     inputSchema: RunIdInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [
@@ -300,7 +302,8 @@ registerContracts([
   },
   {
     command: "runs wait",
-    description: "Poll a run until terminal status",
+    description: "Poll a tracked run until it reaches a terminal status. Input: {id | provider+remote_id, interval_ms? (2000), timeout_ms? (300000)}. Returns {run, result, waited_ms}; fails with JobWaitTimeoutError on timeout.",
+    output: "{ run: { id, provider, kind, remote_id, status, payload, result_ref, created_at, updated_at }, result, waited_ms }; run.status is succeeded|failed|canceled, result is the provider's raw final check response",
     inputSchema: WaitInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [
@@ -309,14 +312,16 @@ registerContracts([
   },
   {
     command: "runs cancel",
-    description: "Cancel a run where the provider supports it",
+    description: "Cancel a tracked run at its provider (exa agent, parallel monitor/findall, firecrawl batch/crawl/agent) and mark it canceled locally. Input: {id} or {provider, remote_id}. Returns {run_id, remote_id, result}.",
+    output: "{ run_id, remote_id, result }; result is the provider's raw cancel response",
     inputSchema: RunIdInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [{ name: "cancel by id", input: { id: RUN_ID_EXAMPLE } }],
   },
   {
     command: "runs events",
-    description: "Fetch provider events for a run",
+    description: "Fetch the provider's event log for a tracked run (exa agent, parallel monitor/findall). Input: {id} or {provider, remote_id}. Returns {run_id, remote_id, provider, events}.",
+    output: "{ run_id, remote_id, provider, events }; events is the provider's raw events response",
     inputSchema: RunIdInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [{ name: "events by id", input: { id: RUN_ID_EXAMPLE } }],
