@@ -10,7 +10,24 @@ export interface ExecResult {
   readonly stderr: string
 }
 
-export type Executor = (argv: ReadonlyArray<string>, input: string) => Promise<ExecResult>
+/**
+ * `input` undefined runs a command that takes no JSON payload (doctor,
+ * capabilities). Aborting `signal` kills the child process.
+ */
+export type Executor = (
+  argv: ReadonlyArray<string>,
+  input: string | undefined,
+  signal?: AbortSignal,
+) => Promise<ExecResult>
+
+/**
+ * Children must return data inline: the default `auto` output policy would
+ * swap results over 64KB for an artifact pointer that `$.step.data` paths and
+ * MCP clients cannot read.
+ */
+export const INLINE_OUTPUT_ENV = "SURVEY_OUTPUT_INLINE"
+
+export const childEnv = (): Record<string, string | undefined> => ({ ...process.env, [INLINE_OUTPUT_ENV]: "1" })
 
 /** How to re-invoke this CLI: compiled binary → execPath; `bun run cli.ts` → execPath + script. */
 export const selfCommand = (): ReadonlyArray<string> => {
@@ -21,18 +38,21 @@ export const selfCommand = (): ReadonlyArray<string> => {
   return [process.execPath, script]
 }
 
-export const spawnExecutor: Executor = async (argv, input) => {
-  const proc = Bun.spawn([...selfCommand(), ...argv, "-"], {
-    stdin: new Blob([input]),
+export const spawnExecutor: Executor = async (argv, input, signal) => {
+  const proc = Bun.spawn([...selfCommand(), ...argv, ...(input === undefined ? [] : ["-"])], {
+    stdin: input === undefined ? "ignore" : new Blob([input]),
     stdout: "pipe",
     stderr: "pipe",
-    env: process.env,
+    env: childEnv(),
   })
+  const kill = () => proc.kill()
+  if (signal?.aborted) kill()
+  signal?.addEventListener("abort", kill, { once: true })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
-  ])
+  ]).finally(() => signal?.removeEventListener("abort", kill))
   return { exitCode, stdout, stderr }
 }
 

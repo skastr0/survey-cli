@@ -1,12 +1,12 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 ;(globalThis as { Bun?: unknown }).Bun ??= { env: process.env }
 
 import "../src/capabilities/corpus"
 import "../src/capabilities/fetch"
 import "../src/capabilities/search"
-import { runPipeline } from "../src/capabilities/pipe"
+import { PipeInput, runPipeline } from "../src/capabilities/pipe"
 import type { Executor } from "../src/core/exec"
 import { resolveReference, resolveValue } from "../src/core/jsonpath"
 
@@ -42,7 +42,7 @@ const fakeExec = (handlers: Record<string, (input: any) => unknown>) => {
   const calls: Array<{ command: string; input: unknown }> = []
   const exec: Executor = async (argv, raw) => {
     const command = argv.join(" ")
-    const input = JSON.parse(raw)
+    const input = raw === undefined ? undefined : JSON.parse(raw)
     calls.push({ command, input })
     const handler = handlers[command]
     if (handler === undefined) {
@@ -163,4 +163,34 @@ describe("runPipeline", () => {
       expect((capped as any).results.f.truncated_items).toBe(7)
     }),
   )
+
+  it.effect("runs no-input commands without a payload", () =>
+    Effect.gen(function* () {
+      const { exec, calls } = fakeExec({ doctor: () => ({ cli: "survey" }) })
+      const result = yield* runPipeline({ steps: [{ id: "d", command: "doctor", input: { ignored: true } }] }, exec)
+      expect(result.ok).toBe(true)
+      expect(calls).toEqual([{ command: "doctor", input: undefined }])
+    }),
+  )
+
+  it.live("aborts the child's signal when a step times out", () =>
+    Effect.gen(function* () {
+      let aborted = false
+      const hang: Executor = (_argv, _input, signal) =>
+        new Promise((resolve) => {
+          signal?.addEventListener("abort", () => {
+            aborted = true
+            resolve({ exitCode: 143, stdout: "", stderr: "" })
+          })
+        })
+      const result = yield* runPipeline({ steps: [{ id: "f", command: "fetch", timeout_ms: 50 }] }, hang)
+      expect(result.steps[0]?.error?.type).toBe("TimeoutError")
+      expect(aborted).toBe(true)
+    }),
+  )
+
+  it("rejects negative max_items instead of silently dropping items", () => {
+    const decoded = Schema.decodeUnknownResult(PipeInput)({ max_items: -1, steps: [] })
+    expect(decoded._tag).toBe("Failure")
+  })
 })

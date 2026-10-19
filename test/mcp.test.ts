@@ -8,7 +8,7 @@ import "../src/commands/auth"
 import { stripNullBranches } from "../src/core/discovery"
 import { buildTools, createHandler, type Executor, toolName } from "../src/mcp/server"
 
-const calls: Array<{ argv: ReadonlyArray<string>; input: string }> = []
+const calls: Array<{ argv: ReadonlyArray<string>; input: string | undefined }> = []
 const fakeExec: Executor = async (argv, input) => {
   calls.push({ argv, input })
   if (argv.join(" ") === "corpus read") {
@@ -18,7 +18,7 @@ const fakeExec: Executor = async (argv, input) => {
       stderr: JSON.stringify({ ok: false, command: "corpus read", error: { type: "CommandInputError", message: "nope" } }),
     }
   }
-  return { exitCode: 0, stdout: JSON.stringify({ ok: true, command: argv.join(" "), data: { echo: JSON.parse(input) } }), stderr: "" }
+  return { exitCode: 0, stdout: JSON.stringify({ ok: true, command: argv.join(" "), data: { echo: JSON.parse(input ?? "{}") } }), stderr: "" }
 }
 
 describe("buildTools", () => {

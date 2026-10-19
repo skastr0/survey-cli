@@ -1,11 +1,15 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 
+import { emitOutput } from "../src/core/artifacts"
 import { canonicalizeUrl, Store } from "../src/core/store"
 import { extractUrls } from "../src/core/runs"
 import { decodeJsonText, loadJsonInput } from "../src/core/json"
 import { renderFailureEnvelope, renderSuccessEnvelope, toErrorDetails } from "../src/core/output"
 import { CommandInputError, MissingApiKeyError } from "../src/core/errors"
+
+// emitOutput reads Bun.env; vitest runs under Node.
+;(globalThis as { Bun?: unknown }).Bun ??= { env: process.env }
 
 const TestPaths = Layer.mergeAll(
   FileSystem.layerNoop({
@@ -218,3 +222,17 @@ describe("store service contract", () => {
     }).pipe(Effect.provide(Layer.succeed(Store, inMemoryStore()))),
   )
 })
+
+describe("emitOutput", () => {
+  const big = "x".repeat(70 * 1024)
+  it.effect("keeps auto output inline for pipe/MCP children", () =>
+    Effect.gen(function* () {
+      process.env.SURVEY_OUTPUT_INLINE = "1"
+      const emitted = yield* emitOutput({ policy: "auto", key: "k", kind: "json", contents: big, summary: "s" }).pipe(
+        Effect.ensuring(Effect.sync(() => delete process.env.SURVEY_OUTPUT_INLINE)),
+      )
+      expect(emitted.kind).toBe("inline")
+    }).pipe(Effect.provide(TestPaths)),
+  )
+})
+

@@ -31,12 +31,13 @@ export const PipeInput = Schema.Struct({
   steps: Schema.Array(PipeStep),
   vars: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   output: Schema.optional(Schema.Unknown),
-  max_items: Schema.optional(Schema.Int),
+  max_items: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 })
 export type PipeInput = typeof PipeInput.Type
 
 /** Commands that cannot run inside a pipeline step. */
 const FORBIDDEN = new Set(["mcp serve"])
+/** Runnable without a contract; they take no JSON payload. */
 const EXTRA_ALLOWED = new Set(["doctor", "capabilities"])
 
 interface StepReport {
@@ -59,7 +60,13 @@ const pathError = (field: string) => (error: unknown) =>
 
 const execOnce = (exec: Executor, step: PipeStep, input: unknown) =>
   Effect.tryPromise({
-    try: () => exec(step.command.split(" "), JSON.stringify(input ?? {})),
+    // The abort signal fires when timeout_ms interrupts this effect, killing the child.
+    try: (signal) =>
+      exec(
+        step.command.split(" "),
+        EXTRA_ALLOWED.has(step.command) ? undefined : JSON.stringify(input ?? {}),
+        signal,
+      ),
     catch: (error) => error,
   }).pipe(
     Effect.map(envelopeOf),
