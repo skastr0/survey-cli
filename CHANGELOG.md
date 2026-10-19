@@ -7,57 +7,78 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [Unreleased]
 
-The workspace version was bumped to 0.1.2 and 0.1.3 without a tag or npm
-release; everything since 0.1.1 ships together in the next tagged release.
+## [0.1.5] - 2026-10-19
+
+First release since 0.1.1. Versions 0.1.2–0.1.4 were bumped in the workspace
+but never tagged or published.
 
 ### Added
 
-- Local research corpus: every fetched page, file, and note is versioned and
-  FTS5-indexed (`corpus add|search|grep|read|diff|versions|stats`); search
-  hits report best-matching line numbers. `fetch` stores pages in the corpus
-  with a `max_age_ms` cache and a `changed` flag.
-- `pipe`: declarative multi-step pipelines over survey commands.
-- `mcp serve`: every registered command as an MCP tool over stdio.
-- `compare` (providers side by side) and `watch` (page change detection).
-- TinyFish provider (search, fetch, browser agent, research, monitors) and
-  TinyFish in unified search, fetch fallback, research jury, and monitor.
-- Keyless local document providers `anydoc` and `pdf-inspector`, local-first
-  routing in unified `convert`/`extract`, conversions remembered in the
-  corpus; both tools ship as optional dependencies of the npm wrapper.
-- Unified search fuses results with Reciprocal Rank Fusion and reports
-  per-provider ranks.
-- Every `--help` ends with a CONTRACT section: input mode and required
-  fields, return shape, lifecycle, example names, and the `schema show` call.
-- `capabilities` lists each command's real flags (read from the parser),
-  input mode, and required fields, plus exit codes, the error details
-  contract, artifact policy, and which commands accept `--idempotency-key`.
-- `schema show` adds input mode, batch support, required fields, flags,
-  output notes, lifecycle, and example names; `doctor` adds a readiness
-  summary and a `next_step` for each provider missing a key.
-- Artifact records carry `created_at` and a read-back `next_step`.
+- **Keyless access.** A provider tier model resolves each provider ×
+  capability to `keyed | public | local | unavailable` and `free | paid`.
+  Unified `search`, `fetch`, and `extract` route through it, so Exa, Parallel,
+  Firecrawl, and Keenable work without keys (Exa and Parallel via their hosted
+  MCP free tiers; responses carry `auth_mode`). `tier: "free"` restricts a call
+  to providers that spend no account credits; results report
+  `routing {provider, mode, cost}`.
+- **TinyFish provider**: search, fetch, browser agent, research, profiles,
+  vault, monitors, usage. TinyFish also joins unified search, the fetch
+  fallback chain, the research jury, and `monitor`.
+- **Local document tools** `anydoc` and `pdf-inspector` (keyless, offline),
+  shipped as optional dependencies of the npm wrapper. Unified `convert` and
+  `extract` route local first; `convert {dir}` and `corpus add {dir}` ingest a
+  whole folder, skipping files whose sha256 is unchanged.
+- **Local corpus**: fetched pages, conversions, TinyFish results, and
+  research/verify reports are versioned and FTS5-indexed in `store.db`
+  (`corpus add|search|grep|read|diff|versions|list|stats|remove|prune`).
+  `fetch` gains a `max_age_ms` cache and a `changed` flag; `search {read_top}`
+  reads the top fused results into the corpus.
+- **Composition**: `pipe` runs declarative multi-step pipelines over survey
+  commands; `mcp serve` exposes every command as an MCP tool over stdio
+  (`mcp tools`, `mcp config` for client setup, per-call `timeout_ms`).
+- **Research**: `papers` (Firecrawl Research Index with an arXiv web fallback),
+  `firecrawl research *` paper commands, and `domain: auto|web|academic` on
+  `research` and `verify`; `compare` shows providers side by side; `watch`
+  detects page changes.
+- **Agent discovery**: every `--help` ends with a CONTRACT section (input mode,
+  required fields, return shape, examples, schema pointer). `capabilities`
+  lists each command's real flags, input mode, required fields, exit codes,
+  error details contract, artifact policy, tier matrix, and keyless
+  capabilities. `doctor` adds a readiness summary, per-capability access, and a
+  `next_step` per missing key. `schema show` adds input mode, required fields,
+  flags, output, lifecycle, and example names. Artifact records carry
+  `created_at` and a read-back `next_step`.
 
 ### Changed
 
+- Unified search fuses results with Reciprocal Rank Fusion and reports
+  per-provider `ranks`; raw cross-provider scores are no longer compared.
 - `capabilities` no longer claims `--timeout`, `--wait`, and
   `--idempotency-key` are global; see `commands[].flags`.
 - Schema mismatches are `JsonInputError` with `reason: "InvalidShape"` and
   `details.issues[{path, message}]`; unparseable text keeps
-  `reason: "InvalidJson"` with the parser's message.
-- Every failure envelope carries `details.retryable` and `details.hint`;
-  input errors add a `next_step` naming `survey schema show "<command>"`.
+  `reason: "InvalidJson"` with the parser's message. Every failure carries
+  `details.retryable` and `details.hint`, plus `next_step` where a recovery
+  call exists.
 
 ### Fixed
 
-- Unknown commands, unknown flags, and missing arguments no longer print help
-  to stdout with a `~effect/cli/CliError/ShowHelp` envelope. They emit one
-  `CliUsageError` envelope on stderr (issues, suggestions, next_step), exit 1.
-- Failures raised as plain `{ _tag }` records (for example unified `extract`
-  without `PARALLEL_API_KEY`) rendered as `{ type: "Error", message:
-  "[object Object]" }`; they now render as their typed error.
-- Defects render the underlying message with the trace in `details.trace`
-  and name the failing command.
+- Unknown commands, unknown flags, and missing arguments printed help to stdout
+  with a `ShowHelp` envelope; they now emit one `CliUsageError` on stderr and
+  exit 1 with empty stdout.
+- Unified `extract`, `fetch`, and `runs wait` failed with plain objects
+  (`"[object Object]"`); they raise typed errors, and fetch reports every
+  attempted provider.
+- `runs`: Llama parse status, Parallel FindAll ids, and Firecrawl batch
+  endpoints were wrong, so some runs never left `running`.
+- `pipe` children return inline data instead of artifact pointers, timed-out
+  steps are killed, and no-input commands run.
+- `mcp serve` no longer answers notifications or crashes on malformed messages.
+- Corpus search quotes stray `AND/OR/NOT`, file keys keep `#`/`?`, and empty
+  diffs have no phantom line.
 - Advertised input schemas no longer show phantom `null` branches; `runs`,
-  `sources`, `llama`, and `exa` commands have complete contracts.
+  `sources`, `llama`, `exa`, and `parallel monitors list` have complete
+  contracts.
 
 ## [0.1.1] - 2026-09-13
 
