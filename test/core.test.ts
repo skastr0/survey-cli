@@ -320,3 +320,13 @@ describe("emitOutput", () => {
   )
 })
 
+
+describe("presentRun", () => {
+  it("decodes the stored payload JSON into an object and leaves malformed payloads alone", async () => {
+    const { presentRun } = await import("../src/capabilities/runs")
+    const base = { id: "srv_1", status: "queued" }
+    expect(presentRun({ ...base, payload: '{"query":"q"}' }).payload).toEqual({ query: "q" })
+    expect(presentRun({ ...base, payload: "{bad" }).payload).toBe("{bad")
+    expect(presentRun({ ...base, payload: null }).payload).toBeNull()
+  })
+})

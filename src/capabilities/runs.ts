@@ -3,7 +3,7 @@ import { Command } from "effect/unstable/cli"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContracts } from "../core/discovery"
-import { CommandInputError, JobWaitTimeoutError, ProviderUnsupportedError } from "../core/errors"
+import { JobWaitTimeoutError, NotFoundError, ProviderUnsupportedError } from "../core/errors"
 import { executeJsonCommand, toErrorDetails } from "../core/output"
 import type { AppEnv } from "../core/env"
 import { Store, type RunStatus } from "../core/store"
@@ -130,11 +130,23 @@ const resolveRun = (input: { id?: string | undefined; provider?: string | undefi
       const run = yield* store.findRunByRemote(input.provider, input.remote_id)
       if (run) return run
     }
-    return yield* new CommandInputError({
-      field: "id",
+    return yield* new NotFoundError({
+      resource: "run",
+      id: input.id ?? `${input.provider ?? "?"}:${input.remote_id ?? "?"}`,
       message: "No run found. Provide a survey run id (srv_...) or provider + remote_id.",
+      next_step: `survey runs list '{}'`,
     })
   })
+
+/** Agents read `payload` as data: decode the stored JSON string back into the original input. */
+export const presentRun = <R extends { readonly payload: string | null }>(run: R) => {
+  if (run.payload === null) return run
+  try {
+    return { ...run, payload: JSON.parse(run.payload) as unknown }
+  } catch {
+    return run
+  }
+}
 
 const adapterFor = (run: { provider: string; kind: string }) =>
   runAdapters[run.provider]?.(run.kind)
@@ -152,7 +164,7 @@ export const runsList = makeJsonCommand({
         status: input.status,
         limit: input.limit ?? 100,
       })
-      return { runs, count: runs.length }
+      return { runs: runs.map(presentRun), count: runs.length }
     }),
 })
 
@@ -166,19 +178,19 @@ export const runsInspect = makeJsonCommand({
       const run = yield* resolveRun(input)
       const adapter = adapterFor(run)
       let live: unknown = null
+      let status = run.status
       if (adapter?.check && run.remote_id) {
         const outcome = yield* Effect.result(adapter.check(run.remote_id))
         if (outcome._tag === "Success") {
           live = outcome.success
+          status = normalizeStatus(live)
           const store = yield* Store
-          yield* store
-            .updateRun(run.id, { status: normalizeStatus(live) })
-            .pipe(Effect.catch(() => Effect.void))
+          yield* store.updateRun(run.id, { status }).pipe(Effect.catch(() => Effect.void))
         } else {
           live = { error: toErrorDetails(outcome.failure) }
         }
       }
-      return { run, live }
+      return { run: presentRun({ ...run, status }), live }
     }),
 })
 
@@ -209,7 +221,7 @@ export const runsWait = makeJsonCommand({
           const status = normalizeStatus(outcome.success)
           yield* store.updateRun(run.id, { status }).pipe(Effect.catch(() => Effect.void))
           if (["succeeded", "failed", "canceled"].includes(status)) {
-            return { run: { ...run, status }, result: outcome.success, waited_ms: timeoutMs - (deadline - Date.now()) }
+            return { run: presentRun({ ...run, status }), result: outcome.success, waited_ms: timeoutMs - (deadline - Date.now()) }
           }
         }
         if (Date.now() >= deadline) {
@@ -281,7 +293,7 @@ registerContracts([
   {
     command: "runs list",
     description: "List async provider runs tracked in the local registry, newest first. Input: {provider?, status?, limit? (default 100)}. Returns {runs[], count}.",
-    output: "{ runs[{ id, provider, kind, remote_id, status, payload, result_ref, created_at, updated_at }], count }; status is queued|running|succeeded|failed|canceled|unsupported, payload is the JSON-encoded original input",
+    output: "{ runs[{ id, provider, kind, remote_id, status, payload, result_ref, created_at, updated_at }], count }; status is queued|running|succeeded|failed|canceled|unsupported, payload is the original input object",
     inputSchema: ListRunsInput,
     orbit: ["list", "inspect", "wait", "cancel", "events"],
     examples: [
