@@ -1,8 +1,8 @@
 {
   "name": "@skastr0/survey",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
-  "description": "Consolidated researcher toolkit CLI \u2014 Exa, Firecrawl, Parallel, Keenable, LlamaCloud in one JSON-first binary.",
+  "description": "Consolidated researcher toolkit CLI — Exa, Firecrawl, Parallel, Keenable, LlamaCloud in one JSON-first binary.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -40,10 +40,10 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@skastr0/survey-darwin-arm64": "0.1.3",
-    "@skastr0/survey-darwin-x64": "0.1.3",
-    "@skastr0/survey-linux-arm64": "0.1.3",
-    "@skastr0/survey-linux-x64": "0.1.3",
+    "@skastr0/survey-darwin-arm64": "0.1.4",
+    "@skastr0/survey-darwin-x64": "0.1.4",
+    "@skastr0/survey-linux-arm64": "0.1.4",
+    "@skastr0/survey-linux-x64": "0.1.4",
     "@firecrawl/anydoc": "0.2.4",
     "@firecrawl/pdf-inspector": "1.25.2"
   }
