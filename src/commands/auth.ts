@@ -5,7 +5,7 @@ import { registerContract } from "../core/discovery"
 import { makeJsonCommand } from "../core/command"
 import { executeJsonCommand } from "../core/output"
 import { authPath } from "../core/paths"
-import { loadProviderConfig, PROVIDERS, providerNames, ProviderName, writeApiKey } from "../core/registry"
+import { loadProviderConfig, localProviderNames, PROVIDERS, providerNames, ProviderName, writeApiKey } from "../core/registry"
 
 const AuthSetInput = Schema.Struct({
   provider: ProviderName,
@@ -37,7 +37,13 @@ const authStatus = Command.make(
           }),
         )
         const path = yield* authPath
-        return { auth_file: path, providers: rows }
+        const local = localProviderNames.map((name) => ({
+          provider: name,
+          kind: "local" as const,
+          credential_required: false,
+          network: false,
+        }))
+        return { auth_file: path, providers: rows, local_providers: local }
       }),
     )
   }),

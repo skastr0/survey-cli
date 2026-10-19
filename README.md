@@ -26,6 +26,8 @@ survey firecrawl scrape '{"url": "https://example.com", "formats": ["markdown"]}
 survey parallel deep-research start '{"input": "..."}'
 survey keenable select '{"query": "SELECT ..."}'
 survey llama parse create '{"file_path": "./paper.pdf"}'
+survey anydoc convert '{"path": "./report.docx"}'        # local: no key, no network
+survey pdf-inspector classify '{"path": "./paper.pdf"}'   # local: text-based vs scanned
 ```
 
 **Unified capabilities** — the reason this CLI exists:
@@ -34,6 +36,7 @@ survey llama parse create '{"file_path": "./paper.pdf"}'
 survey search '{"query": "..."}'                        # fan out exa+parallel+keenable, dedupe by canonical URL
 survey fetch '{"url": "..."}'                           # firecrawl → keenable → exa fallback chain
 survey extract '{"urls": [...], "schema": {...}}'       # file→llama, urls+schema→firecrawl, objective→parallel
+survey convert '{"path": "./paper.pdf"}'                # local-first document → Markdown (see Local tools)
 survey research '{"query": "...", "depth": "deep"}'     # multi-provider agents + citation intersection
 survey verify '{"claim": "..."}'                        # cross-provider claim checking
 survey monitor create '{...}'                           # normalized monitors (Parallel GA)
@@ -41,6 +44,31 @@ survey sql '{"query": "SELECT ...", "local": true}'     # keenable SELECT or loc
 survey runs list / inspect / wait / cancel / events     # one orbit over all provider jobs
 survey sources list / dedupe / show                     # the source ledger
 ```
+
+## Local tools (anydoc, pdf-inspector)
+
+`survey anydoc …` and `survey pdf-inspector …` wrap Firecrawl's open-source Rust libraries
+(`@firecrawl/anydoc`, `@firecrawl/pdf-inspector`). They need no API key and make no network
+calls (a document `url` is downloaded, then converted locally). They are optional installs
+because each native module is 7-12 MB per platform:
+
+```bash
+mkdir -p ~/.config/survey/tools && bun add --cwd ~/.config/survey/tools @firecrawl/anydoc @firecrawl/pdf-inspector
+survey doctor    # local_tools[]: mode = node_module | path_cli | unavailable, plus version and operations
+```
+
+Resolution order per tool: the npm module (in `$SURVEY_LOCAL_TOOLS_DIR` or `~/.config/survey/tools`, the
+current directory, bun's global dir, or beside a PATH CLI) → the `anydoc` / `pdf-inspector` CLI on PATH
+(convert / classify / extract only) → a typed `LocalToolUnavailableError` with an install hint.
+`@firecrawl/pdf-inspector` publishes no darwin-x64 build.
+
+`survey convert` (and `survey extract` with a file or document URL and no schema/prompt) routes
+local-first and always reports `route.selected`, `route.reason` and `route.trace`:
+
+- PDF → `pdf-inspector` classify → text-based: extract locally; scanned/image/mixed or garbled fonts:
+  LlamaCloud parse when `LLAMA_CLOUD_API_KEY` is set, else `status: "needs_ocr"` with the classification.
+- Office/CSV/EPUB/RTF/ODF → `anydoc`.
+- `"route": "local"` forbids any hosted call; `"route": "llama"` skips the local tools.
 
 ## Contract
 

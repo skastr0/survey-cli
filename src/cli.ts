@@ -11,6 +11,7 @@ import {
   examplesCommand,
   schemaCommand,
 } from "./commands/discovery"
+import { convertCommand } from "./capabilities/convert"
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
 import { monitorCommand } from "./capabilities/monitor"
@@ -24,11 +25,13 @@ import { CLI_NAME, CLI_VERSION } from "./core/constants"
 import { HttpClientLayer } from "./core/http"
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output"
 import { Store } from "./core/store"
+import { anydocCommand } from "./providers/anydoc"
 import { exaCommand } from "./providers/exa"
 import { firecrawlCommand } from "./providers/firecrawl"
 import { keenableCommand } from "./providers/keenable"
 import { llamaCommand } from "./providers/llama"
 import { parallelCommand } from "./providers/parallel"
+import { pdfInspectorCommand } from "./providers/pdf-inspector"
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription("Consolidated researcher toolkit CLI — one binary, five providers, cross-provider research"),
@@ -43,9 +46,12 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     parallelCommand,
     keenableCommand,
     llamaCommand,
+    anydocCommand,
+    pdfInspectorCommand,
     searchCommand,
     fetchCommand,
     extractCommand,
+    convertCommand,
     researchCommand,
     verifyCommand,
     runsCommand,

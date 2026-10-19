@@ -6,6 +6,7 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
+import { localConvertSource, unifiedConvert } from "./convert"
 import { loadProviderConfig, ProviderName } from "../core/registry"
 import { firecrawlApi } from "../providers/firecrawl"
 import { llamaApi } from "../providers/llama"
@@ -54,6 +55,17 @@ const routeExtract = (input: UnifiedExtractInput): Route => {
 export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
   input: UnifiedExtractInput,
 ) {
+  // Plain document -> text requests (no schema/prompt/provider) are local-first.
+  const localSource = localConvertSource(input)
+  if (localSource) {
+    const converted = yield* unifiedConvert(localSource)
+    return {
+      routed_to: converted.route.engine,
+      route_reason: converted.route.reason,
+      result: converted,
+    }
+  }
+
   const route = routeExtract(input)
 
   if (route.provider === "llama" && !(input.file || input.file_path)) {
