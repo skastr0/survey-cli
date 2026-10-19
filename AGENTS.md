@@ -48,6 +48,22 @@ Each provider lives in `src/providers/<name>/` and exports:
 Tests mock HTTP via `<PROVIDER>_API_BASE_URL` pointing at a local server.
 Never hit live provider APIs in unit tests.
 
+## Cross-cutting Architecture
+
+- `src/core/corpus.ts` — `Corpus` service: `documents` + `document_versions` + FTS5
+  `documents_fts` in the same `store.db`. Capabilities write best-effort via
+  `rememberDocument` / read via `recallDocument`, which use `Effect.serviceOption(Corpus)`,
+  so `Corpus` is never required in a command's env (tests may omit it).
+- `src/core/exec.ts` — re-invoke this binary as a subprocess (`spawnExecutor`,
+  `envelopeOf`). `survey pipe` and `survey mcp serve` compose commands through it, so
+  composed calls get identical validation, side effects, and envelopes.
+- Discovery is the product surface: every command needs `registerContract` with
+  `inputSchema` + examples. MCP tools, `schema show`, and `test/contracts.test.ts`
+  (decodes every example) are all derived from contracts. Optional schema keys must
+  not accept `null` — `stripNullBranches` keeps advertised schemas honest.
+- Unified search fuses with Reciprocal Rank Fusion (`normalize.ts`): results carry
+  `ranks{provider}` and `fusion_score`; never sort on raw cross-provider scores.
+
 ## Development
 
 ```bash
@@ -56,7 +72,12 @@ bun run typecheck
 bun run test
 bun run build
 bun run verify
+bun run smoke          # binary smoke: discovery completeness + corpus/pipe/MCP on real sqlite
+bun run bump           # patch-bump every pinned version (package.json ×6 + CLI_VERSION)
 ```
+
+Release: `bun run bump` → commit `chore: bump version to x.y.z` → tag `vx.y.z` → push
+the tag (`.github/workflows/npm-publish.yml` publishes via npm trusted publishing).
 
 Do not call live provider APIs from default tests.
 
