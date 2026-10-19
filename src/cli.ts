@@ -5,6 +5,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Command } from "effect/unstable/cli"
 
 import { authCommand } from "./commands/auth"
+import { mcpCommand } from "./commands/mcp"
 import {
   capabilitiesCommand,
   doctorCommand,
@@ -55,6 +56,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     monitorCommand,
     sqlCommand,
     corpusCommand,
+    mcpCommand,
   ]),
 )
 
