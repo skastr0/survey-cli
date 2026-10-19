@@ -95,6 +95,17 @@ export class ProviderUnsupportedError extends Schema.TaggedError<ProviderUnsuppo
   },
 ) {}
 
+/** Every provider in a fallback chain failed or was skipped; `attempted` holds each outcome. */
+export class AllProvidersFailedError extends Schema.TaggedError<AllProvidersFailedError>()(
+  "AllProvidersFailedError",
+  {
+    capability: Schema.String,
+    target: Schema.String,
+    attempted: Schema.Array(Schema.Unknown),
+    message: Schema.String,
+  },
+) {}
+
 export class StoreError extends Schema.TaggedError<StoreError>()(
   "StoreError",
   {

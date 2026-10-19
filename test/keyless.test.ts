@@ -8,10 +8,14 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
   ;(globalThis as { Bun?: unknown }).Bun = { env: process.env }
 }
 
+import { unifiedExtract } from "../src/capabilities/extract"
+import { unifiedFetch } from "../src/capabilities/fetch"
 import { papers } from "../src/capabilities/papers"
 import { unifiedSearch } from "../src/capabilities/search"
 import { verify } from "../src/capabilities/verify"
 import { getContract } from "../src/core/discovery"
+import { JobWaitTimeoutError, ProviderUnsupportedError } from "../src/core/errors"
+import { toErrorDetails } from "../src/core/output"
 import { Store, type SourceRecord } from "../src/core/store"
 import { resolveAccess, routeProviders } from "../src/core/tiers"
 import { exaApi } from "../src/providers/exa"
@@ -654,5 +658,76 @@ describe("contracts", () => {
       expect(contract?.inputSchema, command).toBeDefined()
       expect(contract?.examples?.length ?? 0, command).toBeGreaterThan(0)
     }
+  })
+})
+
+/* ------------------------------------------------------------------------ */
+/* Error envelopes: real TaggedErrors, typed details with retryable          */
+/* ------------------------------------------------------------------------ */
+
+describe("unified error envelopes", () => {
+  const failureOf = async (effect: Effect.Effect<unknown, unknown, any>) => {
+    const exit = await run(Effect.flip(effect))
+    return { raw: exit, envelope: toErrorDetails(exit) }
+  }
+
+  it("extract without a key fails with MissingApiKeyError naming the PROVIDERS env var", async () => {
+    await withStub({}, {}, async (seen) => {
+      const firecrawl = await failureOf(
+        unifiedExtract({ urls: ["https://example.com"], schema: { type: "object" } }),
+      )
+      expect(firecrawl.envelope).toMatchObject({
+        type: "MissingApiKeyError",
+        details: { provider: "firecrawl", env_var: "FIRECRAWL_API_KEY", retryable: false },
+      })
+      const llama = await failureOf(unifiedExtract({ provider: "llama", file: "./report.pdf" }))
+      expect(llama.envelope).toMatchObject({
+        type: "MissingApiKeyError",
+        details: { provider: "llama", env_var: "LLAMA_CLOUD_API_KEY", retryable: false },
+      })
+      expect(seen).toHaveLength(0)
+    })
+  })
+
+  it("fetch reports AllProvidersFailedError, retryable when a provider was rate limited", async () => {
+    await withStub(
+      { "/keenable/v1/fetch/public": () => ({ status: 429, body: { error: "slow down" } }) },
+      {},
+      async () => {
+        const { raw, envelope } = await failureOf(
+          unifiedFetch({ url: "https://example.com", providers: ["keenable", "llama"], store: false }),
+        )
+        expect((raw as { _tag: string })._tag).toBe("AllProvidersFailedError")
+        expect(envelope.type).toBe("AllProvidersFailedError")
+        expect(envelope.details).toMatchObject({ capability: "fetch", target: "https://example.com", retryable: true })
+        const attempted = (envelope.details as { attempted: Array<{ provider: string; error: unknown }> }).attempted
+        expect(attempted.map((a) => a.provider)).toEqual(["llama", "keenable"])
+        expect(attempted[1]?.error).toMatchObject({ type: "ApiResponseError", details: { status: 429 } })
+      },
+    )
+  })
+
+  it("fetch failure is not retryable when every provider rejected the request", async () => {
+    await withStub(
+      { "/keenable/v1/fetch/public": () => ({ status: 400, body: { error: "bad url" } }) },
+      {},
+      async () => {
+        const { envelope } = await failureOf(
+          unifiedFetch({ url: "https://example.com", providers: ["keenable"], store: false }),
+        )
+        expect(envelope).toMatchObject({ type: "AllProvidersFailedError", details: { retryable: false } })
+      },
+    )
+  })
+
+  it("ProviderUnsupportedError and JobWaitTimeoutError render typed envelopes", () => {
+    expect(
+      toErrorDetails(new ProviderUnsupportedError({ provider: "llama", capability: "fetch", message: "no" })),
+    ).toMatchObject({ type: "ProviderUnsupportedError", details: { capability: "fetch", retryable: false } })
+    expect(
+      toErrorDetails(
+        new JobWaitTimeoutError({ provider: "exa", jobId: "r1", timeoutMs: 10, lastStatus: "running", message: "t" }),
+      ),
+    ).toMatchObject({ type: "JobWaitTimeoutError", details: { job_id: "r1", retryable: true } })
   })
 })

@@ -190,6 +190,30 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
           },
         }
       }
+      case "AllProvidersFailedError": {
+        const attempted = sanitizeForDetails(error.attempted) as ReadonlyArray<unknown>
+        // Retryable when any provider failed transiently (rate limit, 5xx, network).
+        const retryable = attempted.some(
+          (entry) =>
+            typeof entry === "object" &&
+            entry !== null &&
+            typeof (entry as { error?: unknown }).error === "object" &&
+            ((entry as { error: { details?: { retryable?: unknown } } }).error.details?.retryable === true),
+        )
+        return {
+          type: error._tag,
+          message: error.message,
+          details: {
+            capability: error.capability as string,
+            target: error.target as string,
+            attempted,
+            hint: retryable
+              ? "At least one provider failed transiently; retry later or add an API key for higher limits."
+              : "Configure a key for one of the attempted providers, or pass providers explicitly.",
+            retryable,
+          },
+        }
+      }
       case "StoreError": {
         return {
           type: error._tag,

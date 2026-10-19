@@ -823,9 +823,10 @@ describe("tinyfish in unified commands", () => {
           expect(ok.content).toBe("# Example Domain")
 
           const failed = yield* Effect.flip(unifiedFetch({ url: "https://blocked.example", providers: ["tinyfish"] }))
+          expect(failed._tag).toBe("AllProvidersFailedError")
           // The CLI envelope must carry the message, not "[object Object]".
-          expect(toErrorDetails(failed).message).toBe("All fetch providers failed for https://blocked.example")
-          const attempted = (failed as { body: { attempted: Array<{ provider: string; ok: boolean; error?: { message?: string } }> } }).body
+          expect(toErrorDetails(failed).message).toMatch(/^All fetch providers failed for https:\/\/blocked\.example/)
+          const attempted = (failed as unknown as { attempted: Array<{ provider: string; ok: boolean; error?: { message?: string } }> })
             .attempted
           expect(attempted[0]).toMatchObject({ provider: "tinyfish", ok: false })
           expect(attempted[0]?.error?.message).toBe("blocked")
