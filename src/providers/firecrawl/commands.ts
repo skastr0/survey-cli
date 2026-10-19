@@ -237,7 +237,8 @@ const optionalInputEffect = <S extends Schema.Constraint, E, R>(options: {
 export const scrapeCommand = makeLocalBatchCommand({
   name: "scrape",
   commandName: "firecrawl scrape",
-  description: "Scrape a URL or an ordered local batch from JSON input",
+  description:
+    "Scrape one URL (or an ordered local batch) via POST /scrape. Input: {url, formats?, only_main_content?, json_schema?, screenshot?, question?}. Returns page content plus metadata. Keyless free tier works.",
   schema: ScrapeCommandInputSchema,
   validate: (input) => validateScrapeCommandInput(input),
   run: (input, concurrency) => runScrapeCommand(input, concurrency),
@@ -251,7 +252,8 @@ export const scrapeCommand = makeLocalBatchCommand({
 export const mapCommand = makeLocalBatchCommand({
   name: "map",
   commandName: "firecrawl map",
-  description: "Map a website to discovered URLs from JSON input",
+  description:
+    "Map a website to discovered URLs via POST /map, or an ordered local batch. Input: {url, search?, sitemap?, include_subdomains?, limit?}. Returns the discovered links.",
   schema: MapCommandInputSchema,
   validate: (input) => validateMapCommandInput(input),
   run: (input, concurrency) => runMapCommand(input, concurrency),
@@ -265,7 +267,8 @@ export const mapCommand = makeLocalBatchCommand({
 export const searchCommand = makeLocalBatchCommand({
   name: "search",
   commandName: "firecrawl search",
-  description: "Search the web with Firecrawl v2 from JSON input",
+  description:
+    "Search the web via POST /search, optionally scraping result pages. Input: {query, limit?, sources?, scrape_options?}. Returns results grouped by source. Keyless free tier works.",
   schema: SearchCommandInputSchema,
   validate: (input) => validateSearchCommandInput(input),
   run: (input, concurrency) => runSearchCommand(input, concurrency),
@@ -280,7 +283,7 @@ export const parseCommand = makeLocalBatchCommand({
   name: "parse",
   commandName: "firecrawl parse",
   description:
-    "Parse a local document (PDF, Office, HTML, and more) through Firecrawl /v2/parse multipart upload",
+    "Parse a local file (PDF, Office, HTML, ...) via /v2/parse multipart upload. Input: {path, formats?, json_schema?, pdf_*?}. Returns parsed document content. Keyless free tier works.",
   schema: ParseCommandInputSchema,
   validate: (input) => validateParseCommandInput(input),
   run: (input, concurrency) => runParseCommand(input, concurrency),
@@ -299,7 +302,8 @@ const runBatchStart = (input: typeof BatchStartInputSchema.Type) =>
 const batchStartCommand = makeJsonCommand({
   name: "start",
   commandName: "firecrawl batch start",
-  description: "Start a Firecrawl provider-owned batch scrape job",
+  description:
+    "Start a provider-owned batch scrape job (POST /batch/scrape). Input: {urls, formats?, max_concurrency?, webhook?}. Returns a submitted job snapshot whose id feeds batch check/wait.",
   schema: BatchStartInputSchema,
   run: runBatchStart,
 })
@@ -307,7 +311,8 @@ const batchStartCommand = makeJsonCommand({
 const batchRunCommand = makeJsonCommand({
   name: "run",
   commandName: "firecrawl batch run",
-  description: "Alias for firecrawl batch start",
+  description:
+    "Alias for firecrawl batch start: start a provider-owned batch scrape job. Input: {urls, formats?, max_concurrency?}. Returns a submitted job snapshot with id.",
   schema: BatchStartInputSchema,
   run: runBatchStart,
 })
@@ -315,7 +320,8 @@ const batchRunCommand = makeJsonCommand({
 const batchCheckCommand = makeJsonCommand({
   name: "check",
   commandName: "firecrawl batch check",
-  description: "Check a Firecrawl batch scrape job (or a next page URL)",
+  description:
+    "Check a batch scrape job by id (GET /batch/scrape/{id}), or fetch a results page via next_url. Input: {id, next_url?}. Returns a normalized status snapshot with scraped pages.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -327,7 +333,8 @@ const batchCheckCommand = makeJsonCommand({
 const batchInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "firecrawl batch inspect",
-  description: "Alias for firecrawl batch check",
+  description:
+    "Alias for firecrawl batch check: snapshot a batch scrape job by id. Input: {id, next_url?}. Returns normalized status, progress and the provider response.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -339,7 +346,8 @@ const batchInspectCommand = makeJsonCommand({
 const batchWaitCommand = makeJsonCommand({
   name: "wait",
   commandName: "firecrawl batch wait",
-  description: "Poll a Firecrawl batch scrape job until it reaches a terminal state",
+  description:
+    "Poll a batch scrape job by id until terminal. Input: {id, poll_interval_ms?, timeout_ms?}. Returns the final job snapshot plus waited_ms; fails with a timeout error otherwise.",
   schema: WaitInputSchema,
   run: (input) =>
     validateWaitInput(input).pipe(
@@ -351,7 +359,8 @@ const batchWaitCommand = makeJsonCommand({
 const batchErrorsCommand = makeJsonCommand({
   name: "errors",
   commandName: "firecrawl batch errors",
-  description: "Fetch Firecrawl batch scrape per-URL errors",
+  description:
+    "Fetch per-URL errors of a batch scrape job (GET /batch/scrape/{id}/errors). Input: {id}. Returns error and robots-blocked counts plus the provider response.",
   schema: JobIdInputSchema,
   run: (input) => validateJobIdInput(input).pipe(Effect.flatMap(batchScrapeErrors)),
 })
@@ -359,7 +368,8 @@ const batchErrorsCommand = makeJsonCommand({
 const batchCancelCommand = makeJsonCommand({
   name: "cancel",
   commandName: "firecrawl batch cancel",
-  description: "Cancel a Firecrawl batch scrape job",
+  description:
+    "Cancel a batch scrape job (DELETE /batch/scrape/{id}). Input: {id}. Returns a canceled terminal snapshot.",
   schema: JobIdInputSchema,
   run: (input) =>
     validateJobIdInput(input).pipe(
@@ -371,7 +381,8 @@ const batchCancelCommand = makeJsonCommand({
 const batchEventsCommand = makeJsonCommand({
   name: "events",
   commandName: "firecrawl batch events",
-  description: "Report Firecrawl batch scrape event stream support (polling only)",
+  description:
+    "Report batch event stream support for a job id. Input: {id}. No provider event stream exists (polling only); returns supported:false with polling alternatives.",
   schema: JobIdInputSchema,
   run: (input) =>
     validateJobIdInput(input).pipe(
@@ -420,7 +431,8 @@ const runCrawlStart = (input: typeof CrawlStartInputSchema.Type) =>
 const crawlStartCommand = makeJsonCommand({
   name: "start",
   commandName: "firecrawl crawl start",
-  description: "Start a Firecrawl crawl job",
+  description:
+    "Start a provider-owned crawl job (POST /crawl). Input: {url, limit?, include_paths?, exclude_paths?, sitemap?, scrape_options?}. Returns a submitted job snapshot whose id feeds crawl check/wait.",
   schema: CrawlStartInputSchema,
   run: runCrawlStart,
 })
@@ -428,7 +440,8 @@ const crawlStartCommand = makeJsonCommand({
 const crawlRunCommand = makeJsonCommand({
   name: "run",
   commandName: "firecrawl crawl run",
-  description: "Alias for firecrawl crawl start",
+  description:
+    "Alias for firecrawl crawl start: start a provider-owned crawl job. Input: {url, limit?, sitemap?, scrape_options?}. Returns a submitted job snapshot with id.",
   schema: CrawlStartInputSchema,
   run: runCrawlStart,
 })
@@ -436,7 +449,8 @@ const crawlRunCommand = makeJsonCommand({
 const crawlCheckCommand = makeJsonCommand({
   name: "check",
   commandName: "firecrawl crawl check",
-  description: "Check a Firecrawl crawl job (or a next page URL)",
+  description:
+    "Check a crawl job by id (GET /crawl/{id}), or fetch a results page via next_url. Input: {id, next_url?}. Returns a normalized status snapshot with crawled pages.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -448,7 +462,8 @@ const crawlCheckCommand = makeJsonCommand({
 const crawlInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "firecrawl crawl inspect",
-  description: "Alias for firecrawl crawl check",
+  description:
+    "Alias for firecrawl crawl check: snapshot a crawl job by id. Input: {id, next_url?}. Returns normalized status, progress and the provider response.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -460,7 +475,8 @@ const crawlInspectCommand = makeJsonCommand({
 const crawlWaitCommand = makeJsonCommand({
   name: "wait",
   commandName: "firecrawl crawl wait",
-  description: "Poll a Firecrawl crawl job until it reaches a terminal state",
+  description:
+    "Poll a crawl job by id until terminal. Input: {id, poll_interval_ms?, timeout_ms?}. Returns the final job snapshot plus waited_ms; fails with a timeout error otherwise.",
   schema: WaitInputSchema,
   run: (input) =>
     validateWaitInput(input).pipe(
@@ -472,7 +488,8 @@ const crawlWaitCommand = makeJsonCommand({
 const crawlErrorsCommand = makeJsonCommand({
   name: "errors",
   commandName: "firecrawl crawl errors",
-  description: "Fetch Firecrawl crawl errors",
+  description:
+    "Fetch per-URL errors of a crawl job (GET /crawl/{id}/errors). Input: {id}. Returns error and robots-blocked counts plus the provider response.",
   schema: JobIdInputSchema,
   run: (input) => validateJobIdInput(input).pipe(Effect.flatMap(crawlErrors)),
 })
@@ -480,7 +497,8 @@ const crawlErrorsCommand = makeJsonCommand({
 const crawlCancelCommand = makeJsonCommand({
   name: "cancel",
   commandName: "firecrawl crawl cancel",
-  description: "Cancel a Firecrawl crawl job",
+  description:
+    "Cancel a crawl job (DELETE /crawl/{id}). Input: {id}. Returns a canceled terminal snapshot.",
   schema: JobIdInputSchema,
   run: (input) =>
     validateJobIdInput(input).pipe(
@@ -492,7 +510,8 @@ const crawlCancelCommand = makeJsonCommand({
 const crawlEventsCommand = makeJsonCommand({
   name: "events",
   commandName: "firecrawl crawl events",
-  description: "Report Firecrawl crawl event stream support (polling only)",
+  description:
+    "Report crawl event stream support for a job id. Input: {id}. Realtime updates exist only via SDK/WebSocket watchers (polling only here); returns supported:false with alternatives.",
   schema: JobIdInputSchema,
   run: (input) =>
     validateJobIdInput(input).pipe(
@@ -527,7 +546,8 @@ const runAgentStart = (input: typeof AgentStartInputSchema.Type) =>
 const agentStartCommand = makeJsonCommand({
   name: "start",
   commandName: "firecrawl agent start",
-  description: "Start a Firecrawl agent job",
+  description:
+    "Start an agent job (POST /agent), successor to /extract for web-wide structured extraction. Input: {prompt, urls?, schema?, max_credits?, model?}. Returns a submitted job snapshot with id.",
   schema: AgentStartInputSchema,
   run: runAgentStart,
 })
@@ -535,7 +555,8 @@ const agentStartCommand = makeJsonCommand({
 const agentRunCommand = makeJsonCommand({
   name: "run",
   commandName: "firecrawl agent run",
-  description: "Alias for firecrawl agent start",
+  description:
+    "Alias for firecrawl agent start: start an agent extraction job. Input: {prompt, urls?, schema?, max_credits?}. Returns a submitted job snapshot with id.",
   schema: AgentStartInputSchema,
   run: runAgentStart,
 })
@@ -543,7 +564,8 @@ const agentRunCommand = makeJsonCommand({
 const agentCheckCommand = makeJsonCommand({
   name: "check",
   commandName: "firecrawl agent check",
-  description: "Check a Firecrawl agent job",
+  description:
+    "Check an agent job by id (GET /agent/{id}). Input: {id}. Returns a normalized status snapshot; provider_response holds the extracted data once completed.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -555,7 +577,8 @@ const agentCheckCommand = makeJsonCommand({
 const agentInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "firecrawl agent inspect",
-  description: "Alias for firecrawl agent check",
+  description:
+    "Alias for firecrawl agent check: snapshot an agent job by id. Input: {id}. Returns normalized status, credits used and the provider response.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -567,7 +590,8 @@ const agentInspectCommand = makeJsonCommand({
 const agentWaitCommand = makeJsonCommand({
   name: "wait",
   commandName: "firecrawl agent wait",
-  description: "Poll a Firecrawl agent job until it reaches a terminal state",
+  description:
+    "Poll an agent job by id until terminal. Input: {id, poll_interval_ms?, timeout_ms?}. Returns the final job snapshot plus waited_ms; fails with a timeout error otherwise.",
   schema: WaitInputSchema,
   run: (input) =>
     validateWaitInput(input).pipe(
@@ -579,7 +603,8 @@ const agentWaitCommand = makeJsonCommand({
 const agentCancelCommand = makeJsonCommand({
   name: "cancel",
   commandName: "firecrawl agent cancel",
-  description: "Cancel a Firecrawl agent job",
+  description:
+    "Cancel an agent job (DELETE /agent/{id}). Input: {id}. Returns a canceled terminal snapshot.",
   schema: JobIdInputSchema,
   run: (input) =>
     validateJobIdInput(input).pipe(
@@ -591,7 +616,8 @@ const agentCancelCommand = makeJsonCommand({
 const agentEventsCommand = makeJsonCommand({
   name: "events",
   commandName: "firecrawl agent events",
-  description: "Fetch the Firecrawl agent execution trace snapshot (REST, not SSE)",
+  description:
+    "Fetch an agent job's execution trace by id (GET /agent/{id}/trace REST snapshot, not an SSE stream). Input: {id, live_view?}. Returns the trace in provider_response.",
   schema: AgentEventsInputSchema,
   run: (input) => validateAgentEventsInput(input).pipe(Effect.flatMap(agentEvents)),
 })
@@ -613,7 +639,9 @@ const agentListCommand = Command.make(
         })
       }),
     ),
-).pipe(Command.withDescription("List recent Firecrawl agent runs"))
+).pipe(Command.withDescription(
+    "List recent agent runs (GET /agent). Input: {before?}; pages are fixed at 20, pass before from the previous next URL. Returns the raw provider listing.",
+  ))
 
 export const agentCommand = Command.make(
   "agent",
@@ -659,7 +687,7 @@ const extractStartCommand = makeJsonCommand({
   name: "start",
   commandName: "firecrawl extract start",
   description:
-    "Start a Firecrawl /v2/extract job. Prefer agent for new work; extract remains for known-URL extraction",
+    "Start a /v2/extract job (Firecrawl recommends agent for new work). Input: {urls?, prompt?, schema?, enable_web_search?}. Returns a submitted job snapshot whose id feeds extract check/wait.",
   schema: ExtractStartInputSchema,
   run: runExtractStart,
 })
@@ -667,7 +695,8 @@ const extractStartCommand = makeJsonCommand({
 const extractRunCommand = makeJsonCommand({
   name: "run",
   commandName: "firecrawl extract run",
-  description: "Alias for firecrawl extract start",
+  description:
+    "Alias for firecrawl extract start: start a /v2/extract job. Input: {urls?, prompt?, schema?}. Returns a submitted job snapshot with id.",
   schema: ExtractStartInputSchema,
   run: runExtractStart,
 })
@@ -675,7 +704,8 @@ const extractRunCommand = makeJsonCommand({
 const extractCheckCommand = makeJsonCommand({
   name: "check",
   commandName: "firecrawl extract check",
-  description: "Check a Firecrawl extract job",
+  description:
+    "Check an extract job by id (GET /extract/{id}). Input: {id}. Returns a normalized status snapshot; provider_response.data holds the extracted object once completed.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -687,7 +717,8 @@ const extractCheckCommand = makeJsonCommand({
 const extractInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "firecrawl extract inspect",
-  description: "Alias for firecrawl extract check",
+  description:
+    "Alias for firecrawl extract check: snapshot an extract job by id. Input: {id}. Returns normalized status and the provider response with extracted data.",
   schema: JobCheckInputSchema,
   run: (input) =>
     validateJobCheckInput(input).pipe(
@@ -699,7 +730,8 @@ const extractInspectCommand = makeJsonCommand({
 const extractWaitCommand = makeJsonCommand({
   name: "wait",
   commandName: "firecrawl extract wait",
-  description: "Poll a Firecrawl extract job until it reaches a terminal state",
+  description:
+    "Poll an extract job by id until terminal. Input: {id, poll_interval_ms?, timeout_ms?}. Returns the final snapshot plus waited_ms. No cancel or events endpoint exists for extract.",
   schema: WaitInputSchema,
   run: (input) =>
     validateWaitInput(input).pipe(
@@ -746,7 +778,7 @@ const interactExecuteCommand = makeJsonCommand({
   name: "execute",
   commandName: "firecrawl interact execute",
   description:
-    "Execute a prompt or code in the browser session bound to a scrape job (prompt xor code)",
+    "Run a prompt or code in the browser session of a scrape job. Input: {id (data.metadata.scrapeId), prompt xor code, language?, timeout?}. Returns the provider result. Keyless free tier works.",
   schema: InteractExecuteInputSchema,
   run: runInteractExecute,
 })
@@ -754,7 +786,8 @@ const interactExecuteCommand = makeJsonCommand({
 const interactStopCommand = makeJsonCommand({
   name: "stop",
   commandName: "firecrawl interact stop",
-  description: "Stop the interactive browser session bound to a scrape job",
+  description:
+    "Stop the interactive browser session bound to a scrape job (DELETE /scrape/{id}/interact). Input: {id} (data.metadata.scrapeId). Returns a stopped marker.",
   schema: JobIdInputSchema,
   run: (input) => validateJobIdInput(input).pipe(Effect.flatMap(interactStop)),
 })
@@ -787,7 +820,8 @@ export const interactCommand = Command.make(
 const researchSearchPapersCommand = makeLocalBatchCommand({
   name: "search-papers",
   commandName: "firecrawl research search-papers",
-  description: "Search the Research Index for ranked papers (keyless; a key raises rate limits)",
+  description:
+    "Search ~43M arXiv/PubMed/bioRxiv/medRxiv abstracts (GET /search/research/papers). Input: {query, k?, authors?, categories?, from?, to?}. Returns ranked papers. Keyless; batch-capable.",
   schema: ResearchSearchPapersCommandInputSchema,
   validate: (input) => Effect.succeed(input),
   run: (input, concurrency) => runResearchCommand(input, concurrency, researchSearchPapers),
@@ -797,7 +831,8 @@ const researchSearchPapersCommand = makeLocalBatchCommand({
 const researchInspectPaperCommand = makeLocalBatchCommand({
   name: "inspect-paper",
   commandName: "firecrawl research inspect-paper",
-  description: "Inspect paper metadata by paperId or primaryId (arxiv:, pmid:, pmcid:, doi:)",
+  description:
+    "Get paper metadata by paperId or primaryId (GET /search/research/papers/{id}). Input: {id} e.g. arxiv:1706.03762. Returns title, abstract, authors, categories, dates, ids. Keyless.",
   schema: ResearchInspectPaperCommandInputSchema,
   validate: (input) => Effect.succeed(input),
   run: (input, concurrency) => runResearchCommand(input, concurrency, researchInspectPaper),
@@ -807,7 +842,8 @@ const researchInspectPaperCommand = makeLocalBatchCommand({
 const researchReadPaperCommand = makeLocalBatchCommand({
   name: "read-paper",
   commandName: "firecrawl research read-paper",
-  description: "Read the top full-text passages of a paper for a question",
+  description:
+    "Read the top full-text passages of a paper answering a question (GET /search/research/papers/{id}?query=). Input: {id, query, k? 1-50, default 4}. Keyless.",
   schema: ResearchReadPaperCommandInputSchema,
   validate: (input) => Effect.succeed(input),
   run: (input, concurrency) => runResearchCommand(input, concurrency, researchReadPaper),
@@ -817,7 +853,8 @@ const researchReadPaperCommand = makeLocalBatchCommand({
 const researchRelatedPapersCommand = makeLocalBatchCommand({
   name: "related-papers",
   commandName: "firecrawl research related-papers",
-  description: "Expand a seed paper to similar papers, citers, or references, ranked by intent",
+  description:
+    "Expand a seed paper (GET /search/research/papers/{id}/similar). Input: {id, intent, mode? similar|citers|references, k?, anchor?, rerank?}. Returns papers ranked by intent. Keyless.",
   schema: ResearchRelatedPapersCommandInputSchema,
   validate: (input) => Effect.succeed(input),
   run: (input, concurrency) => runResearchCommand(input, concurrency, researchRelatedPapers),
