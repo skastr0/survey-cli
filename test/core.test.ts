@@ -6,7 +6,7 @@ import { canonicalizeUrl, Store } from "../src/core/store"
 import { extractUrls } from "../src/core/runs"
 import { decodeJsonText, loadJsonInput } from "../src/core/json"
 import { causeToErrorDetails, renderFailureEnvelope, renderSuccessEnvelope, toErrorDetails } from "../src/core/output"
-import { CommandInputError, MissingApiKeyError } from "../src/core/errors"
+import { CommandInputError, ERROR_TYPES, MissingApiKeyError, NotFoundError } from "../src/core/errors"
 
 // emitOutput reads Bun.env; vitest runs under Node.
 ;(globalThis as { Bun?: unknown }).Bun ??= { env: process.env }
@@ -138,6 +138,29 @@ describe("error contract", () => {
   it("points input errors at schema discovery for the failing command", () => {
     const parsed = JSON.parse(renderFailureEnvelope("exa web-search", new CommandInputError({ field: "q", message: "m" })))
     expect(parsed.error.details.next_step).toContain('survey schema show "exa web-search"')
+  })
+
+  it("lets the raiser override CommandInputError hint and next_step", () => {
+    const details = toErrorDetails(
+      new CommandInputError({ field: "urls", message: "nothing to watch", hint: "h", next_step: "survey fetch" }),
+      { command: "watch" },
+    ).details as Record<string, unknown>
+    expect(details).toMatchObject({ hint: "h", next_step: "survey fetch" })
+  })
+
+  it("renders NotFoundError without pointing at the input schema", () => {
+    const details = toErrorDetails(
+      new NotFoundError({ resource: "corpus document", id: "note://x", message: "No corpus document for note://x" }),
+      { command: "corpus read" },
+    )
+    expect(details).toMatchObject({ type: "NotFoundError", details: { resource: "corpus document", id: "note://x", retryable: false } })
+    expect(JSON.stringify(details)).not.toContain("schema show")
+  })
+
+  it("catalogs every typed error class", () => {
+    for (const tag of ["NotFoundError", "CliUsageError", "JsonInputError", "MissingApiKeyError"]) {
+      expect(ERROR_TYPES).toHaveProperty(tag)
+    }
   })
 
   it("gives every failure retryable and hint", () => {

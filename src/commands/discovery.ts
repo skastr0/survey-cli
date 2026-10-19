@@ -3,7 +3,7 @@ import { Argument, CliOutput, Command } from "effect/unstable/cli"
 
 import { ARTIFACT_INLINE_THRESHOLD_BYTES, CLI_NAME, CLI_VERSION } from "../core/constants"
 import { type CommandContract, getContract, contractJsonSchema, listContracts } from "../core/discovery"
-import { CommandInputError } from "../core/errors"
+import { CommandInputError, ERROR_TYPES } from "../core/errors"
 import { executeJsonCommand } from "../core/output"
 import { artifactDir, storePath, surveyHome } from "../core/paths"
 import { loadProviderConfig, LOCAL_PROVIDERS, localProviderNames, PROVIDERS, providerNames } from "../core/registry"
@@ -303,6 +303,7 @@ export const capabilitiesCommand = Command.make(
               issues: "[{path, message}] on JsonInputError/CommandInputError schema mismatches",
             },
             input_types: ["JsonInputError", "CommandInputError", "CliUsageError"],
+            types: ERROR_TYPES,
             discovery: `${CLI_NAME} schema show "<command>" and ${CLI_NAME} examples show "<command>"`,
           },
           batch: {
