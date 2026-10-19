@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
-import { Effect, Layer } from "effect"
+import { Console, Effect, Layer } from "effect"
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { Command } from "effect/unstable/cli"
+import { CliError, Command } from "effect/unstable/cli"
 
 import { authCommand } from "./commands/auth"
 import { mcpCommand } from "./commands/mcp"
@@ -29,6 +29,7 @@ import { watchCommand } from "./capabilities/watch"
 import { CLI_NAME, CLI_VERSION } from "./core/constants"
 import { Corpus } from "./core/corpus"
 import { HttpClientLayer } from "./core/http"
+import { CliUsageError } from "./core/errors"
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output"
 import { Store } from "./core/store"
 import { anydocCommand } from "./providers/anydoc"
@@ -81,10 +82,49 @@ const runtimeLayer = Layer.mergeAll(
   Corpus.layer.pipe(Layer.provide(BunServices.layer)),
 )
 
+/**
+ * The CLI framework prints help, version, and completions through `Console.log`
+ * — including the help it renders before failing on a parse error. Domain
+ * output never uses `Console`, so buffer it and decide at the end: flush for
+ * explicit `--help`/`--version`, discard when the argv was invalid so stdout
+ * stays empty and stderr carries one `CliUsageError` envelope.
+ */
+const frameworkStdout: Array<string> = []
+const bufferedConsole: Console.Console = {
+  ...globalThis.console,
+  log: (...args: ReadonlyArray<unknown>) => {
+    frameworkStdout.push(args.map(String).join(" "))
+  },
+}
+const flushFrameworkStdout = Effect.sync(() => {
+  for (const line of frameworkStdout.splice(0)) process.stdout.write(`${line}\n`)
+})
+
+const toUsageError = (error: CliError.ShowHelp) => {
+  const issues = error.errors.map((issue) => ({ type: issue._tag, message: issue.message }))
+  return new CliUsageError({
+    command_path: error.commandPath,
+    issues,
+    suggestions: error.errors.flatMap((issue) =>
+      "suggestions" in issue && Array.isArray(issue.suggestions) ? issue.suggestions : [],
+    ),
+    message: issues.map((issue) => issue.message.split("\n")[0]).join("; "),
+  })
+}
+
 const program = rootCommand.pipe(
-  Command.run({ version: CLI_VERSION }),
+  Command.run({ version: CLI_VERSION, renderErrors: false }),
+  Effect.provideService(Console.Console, bufferedConsole),
+  Effect.andThen(flushFrameworkStdout),
   Effect.catch((error: unknown) =>
-    setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(undefined, error))),
+    CliError.isCliError(error) && error._tag === "ShowHelp"
+      ? error.errors.length === 0
+        ? flushFrameworkStdout
+        : Effect.sync(() => frameworkStdout.splice(0)).pipe(
+            Effect.andThen(setExitCode(1)),
+            Effect.andThen(writeFailureEnvelope(error.commandPath.slice(1).join(" ") || undefined, toUsageError(error))),
+          )
+      : setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(undefined, error))),
   ),
   Effect.catchCause((cause) =>
     setExitCode(1).pipe(Effect.andThen(writeCauseEnvelope(undefined, cause))),
