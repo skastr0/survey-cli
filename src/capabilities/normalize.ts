@@ -8,18 +8,24 @@ export interface NormalizedResult {
   readonly providers: ReadonlyArray<string>
   readonly score?: number
   readonly published_at?: string
+  /** 1-based rank of this URL in each provider's own result list. */
+  readonly ranks?: Readonly<Record<string, number>>
+  /** Reciprocal Rank Fusion score across providers (higher is better). */
+  readonly fusion_score?: number
 }
 
 export interface ProviderOutcome {
   readonly provider: string
   readonly ok: boolean
-  readonly results: Array<Omit<NormalizedResult, "providers">>
+  readonly results: Array<Omit<NormalizedResult, "providers" | "ranks" | "fusion_score">>
   readonly error?: unknown
 }
 
 /** Pull normalized result rows out of any provider payload shape. */
-export const toResults = (payload: unknown): Array<Omit<NormalizedResult, "providers">> => {
-  const rows: Array<Omit<NormalizedResult, "providers">> = []
+type ProviderRow = Omit<NormalizedResult, "providers" | "ranks" | "fusion_score">
+
+export const toResults = (payload: unknown): Array<ProviderRow> => {
+  const rows: Array<ProviderRow> = []
   const visit = (value: unknown) => {
     if (!value || typeof value !== "object") return
     const record = value as Record<string, unknown>
@@ -56,17 +62,37 @@ export const toResults = (payload: unknown): Array<Omit<NormalizedResult, "provi
   return rows
 }
 
-/** Merge provider outcomes: dedupe by canonical URL, union provider provenance. */
+/** RRF constant from Cormack et al.; dampens the head of each list. */
+export const RRF_K = 60
+
+/**
+ * Merge provider outcomes: dedupe by canonical URL, union provider
+ * provenance, and rank with Reciprocal Rank Fusion — sum of 1/(k + rank)
+ * over every provider that returned the URL. Raw provider scores are not
+ * comparable across indexes; ranks are. Corroboration lifts a result
+ * naturally because each extra provider adds a term.
+ */
 export const mergeResults = (
   outcomes: ReadonlyArray<ProviderOutcome>,
 ): Array<NormalizedResult> => {
-  const merged = new Map<string, NormalizedResult & { providers: string[] }>()
+  const merged = new Map<
+    string,
+    NormalizedResult & { providers: string[]; ranks: Record<string, number>; fusion_score: number }
+  >()
   for (const outcome of outcomes) {
+    const seen = new Set<string>()
+    let rank = 0
     for (const result of outcome.results) {
+      if (seen.has(result.canonical_url)) continue
+      seen.add(result.canonical_url)
+      rank += 1
+      const contribution = 1 / (RRF_K + rank)
       const existing = merged.get(result.canonical_url)
       if (existing) {
         if (!existing.providers.includes(outcome.provider)) {
           existing.providers.push(outcome.provider)
+          existing.ranks[outcome.provider] = rank
+          existing.fusion_score += contribution
         }
         if (!existing.title && result.title) {
           ;(existing as { title?: string }).title = result.title
@@ -75,11 +101,16 @@ export const mergeResults = (
           ;(existing as { snippet?: string }).snippet = result.snippet
         }
       } else {
-        merged.set(result.canonical_url, { ...result, providers: [outcome.provider] })
+        merged.set(result.canonical_url, {
+          ...result,
+          providers: [outcome.provider],
+          ranks: { [outcome.provider]: rank },
+          fusion_score: contribution,
+        })
       }
     }
   }
-  return [...merged.values()].sort(
-    (a, b) => b.providers.length - a.providers.length || (b.score ?? 0) - (a.score ?? 0),
-  )
+  return [...merged.values()]
+    .map((result) => ({ ...result, fusion_score: Number(result.fusion_score.toFixed(6)) }))
+    .sort((a, b) => b.fusion_score - a.fusion_score || b.providers.length - a.providers.length)
 }

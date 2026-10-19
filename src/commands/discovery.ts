@@ -6,8 +6,9 @@ import { getContract, contractJsonSchema, listContracts } from "../core/discover
 import { CommandInputError } from "../core/errors"
 import { executeJsonCommand } from "../core/output"
 import { artifactDir, storePath, surveyHome } from "../core/paths"
-import { loadProviderConfig, PROVIDERS, providerNames } from "../core/registry"
+import { loadProviderConfig, LOCAL_PROVIDERS, localProviderNames, PROVIDERS, providerNames } from "../core/registry"
 import { resolveAccess, tierTable, TIER_RULES } from "../core/tiers"
+import { localToolStatus } from "../local/tools"
 
 export const doctorCommand = Command.make(
   "doctor",
@@ -37,11 +38,24 @@ export const doctorCommand = Command.make(
           }),
         )
 
-        const free = providers.flatMap((p) =>
-          Object.entries(p.access)
-            .filter(([, access]) => access.available && access.cost === "free")
-            .map(([capability, access]) => ({ provider: p.provider, capability, mode: access.mode })),
-        )
+        const localTools = yield* Effect.forEach(localProviderNames, localToolStatus)
+
+        const free = [
+          ...providers.flatMap((p) =>
+            Object.entries(p.access)
+              .filter(([, access]) => access.available && access.cost === "free")
+              .map(([capability, access]) => ({ provider: p.provider as string, capability, mode: access.mode })),
+          ),
+          ...localTools
+            .filter((tool) => tool.available)
+            .flatMap((tool) =>
+              LOCAL_PROVIDERS[tool.tool].capabilities.map((capability) => ({
+                provider: tool.tool as string,
+                capability,
+                mode: "local" as const,
+              })),
+            ),
+        ]
 
         return {
           cli: CLI_NAME,
@@ -50,6 +64,7 @@ export const doctorCommand = Command.make(
           artifact_dir: artifacts,
           store_path: store,
           providers,
+          local_tools: localTools,
           free_capabilities: free,
         }
       }),
@@ -81,6 +96,24 @@ export const capabilitiesCommand = Command.make(
           }
         })
 
+        const localProviders = yield* Effect.forEach(localProviderNames, (name) =>
+          localToolStatus(name).pipe(
+            Effect.map((status) => ({
+              provider: name,
+              kind: LOCAL_PROVIDERS[name].kind,
+              npm_package: LOCAL_PROVIDERS[name].npmPackage,
+              cli: LOCAL_PROVIDERS[name].cli,
+              requires_key: false,
+              network: false,
+              capabilities: LOCAL_PROVIDERS[name].capabilities,
+              mode: status.mode,
+              available: status.available,
+              version: status.version,
+              operations: status.operations,
+            })),
+          ),
+        )
+
         return {
           protocol: "survey-cli/v1",
           input: {
@@ -109,6 +142,7 @@ export const capabilitiesCommand = Command.make(
             status: "local success-receipt; not a provider guarantee",
           },
           providers,
+          local_providers: localProviders,
           tiers: {
             modes: {
               keyed: "API key configured; spends account credits (cost paid)",

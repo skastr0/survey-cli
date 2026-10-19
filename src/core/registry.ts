@@ -3,6 +3,7 @@ import { Context, Effect, FileSystem, Schema } from "effect"
 import { CommandInputError, MissingApiKeyError } from "./errors"
 import { decodeUnknownJsonText } from "./json"
 import { authPath } from "./paths"
+import { LOCAL_TOOL_SPECS, type LocalToolName } from "../local/tools"
 
 export const ProviderName = Schema.Literals([
   "exa",
@@ -10,6 +11,7 @@ export const ProviderName = Schema.Literals([
   "parallel",
   "keenable",
   "llama",
+  "tinyfish",
 ])
 export type ProviderName = typeof ProviderName.Type
 
@@ -31,6 +33,7 @@ export const Capability = Schema.Literals([
   "entity_search",
   "files",
   "papers",
+  "browser",
 ])
 export type Capability = typeof Capability.Type
 
@@ -129,6 +132,17 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     keyHint: "Export LLAMA_CLOUD_API_KEY from https://cloud.llamaindex.ai.",
     auth: { kind: "bearer" },
     capabilities: ["files", "parse", "extract"],
+    publicFallback: false,
+  },
+  tinyfish: {
+    name: "tinyfish",
+    envVar: "TINYFISH_API_KEY",
+    baseUrlEnv: "TINYFISH_API_BASE_URL",
+    defaultBaseUrl: "https://agent.tinyfish.ai",
+    keyHint:
+      "Export TINYFISH_API_KEY from https://agent.tinyfish.ai/api-keys. Search and Fetch have a free daily allowance but still require a key.",
+    auth: { kind: "header", header: "x-api-key" },
+    capabilities: ["search", "fetch", "browser", "interact", "deep_research", "monitor"],
     publicFallback: false,
   },
 }
@@ -274,3 +288,44 @@ export const requireCredential = Effect.fn("requireCredential")(function* (
 
   return config.credential
 })
+
+/**
+ * Local providers run in-process or as a PATH CLI: no key, no base URL, no
+ * network. They are modeled separately from `PROVIDERS` so credential, auth
+ * and HTTP code paths can never be handed a keyless provider.
+ */
+export interface LocalProviderSpec {
+  readonly kind: "local"
+  readonly name: LocalToolName
+  readonly npmPackage: string
+  readonly cli: string
+  readonly description: string
+  readonly capabilities: ReadonlyArray<string>
+  readonly requiresKey: false
+  readonly network: false
+}
+
+export const LOCAL_PROVIDERS: Record<LocalToolName, LocalProviderSpec> = {
+  anydoc: {
+    kind: "local",
+    name: "anydoc",
+    npmPackage: LOCAL_TOOL_SPECS.anydoc.npmPackage,
+    cli: LOCAL_TOOL_SPECS.anydoc.cli,
+    description: LOCAL_TOOL_SPECS.anydoc.description,
+    capabilities: ["convert"],
+    requiresKey: false,
+    network: false,
+  },
+  "pdf-inspector": {
+    kind: "local",
+    name: "pdf-inspector",
+    npmPackage: LOCAL_TOOL_SPECS["pdf-inspector"].npmPackage,
+    cli: LOCAL_TOOL_SPECS["pdf-inspector"].cli,
+    description: LOCAL_TOOL_SPECS["pdf-inspector"].description,
+    capabilities: ["classify", "convert"],
+    requiresKey: false,
+    network: false,
+  },
+}
+
+export const localProviderNames = Object.keys(LOCAL_PROVIDERS) as ReadonlyArray<LocalToolName>

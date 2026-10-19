@@ -3,11 +3,14 @@ import { Effect, Schema } from "effect"
 import {
   KeylessOnly,
   loadProviderConfig,
+  LOCAL_PROVIDERS,
+  localProviderNames,
   PROVIDERS,
   providerNames,
   type Capability,
   type ProviderName,
 } from "./registry"
+import { localToolStatus, type LocalToolName } from "../local/tools"
 
 /**
  * Provider capabilities that work without an API key (`public`) or run on this
@@ -30,6 +33,8 @@ export const TIER_RULES: Partial<Record<ProviderName, TierRule>> = {
   // https://www.firecrawl.dev/agent-onboarding/SKILL.md, "Path F: Keyless Free Tier":
   // /v2/search, /v2/scrape, /v2/parse, interact, /v2/search/research/* need no key.
   firecrawl: { public: ["search", "fetch", "parse", "interact", "papers"] },
+  // tinyfish: no entry on purpose. Live 401 without a key; its free daily
+  // allowance still needs TINYFISH_API_KEY, so every capability is keyed.
 }
 
 export const AccessMode = Schema.Literals(["keyed", "public", "local", "unavailable"])
@@ -82,9 +87,20 @@ export const providerAccess = Effect.fn("providerAccess")(function* (
   return resolveAccess(provider, capability, config.credential !== undefined)
 })
 
+/**
+ * Local providers (LOCAL_PROVIDERS: anydoc, pdf-inspector) never need a key:
+ * mode `local` when the tool resolves on this machine, else `unavailable`.
+ */
+export const localAccess = Effect.fn("localAccess")(function* (tool: LocalToolName) {
+  const status = yield* localToolStatus(tool)
+  return status.available
+    ? ({ available: true, mode: "local", cost: "free" } satisfies Access)
+    : UNAVAILABLE
+})
+
 /** Static view for `capabilities`: which access modes each capability can use. */
-export const tierTable = () =>
-  providerNames.map((provider) => {
+export const tierTable = () => [
+  ...providerNames.map((provider) => {
     const rule = TIER_RULES[provider]
     return {
       provider,
@@ -99,7 +115,14 @@ export const tierTable = () =>
         ]),
       ) as Record<string, ReadonlyArray<AccessMode>>,
     }
-  })
+  }),
+  ...localProviderNames.map((provider) => ({
+    provider,
+    capabilities: Object.fromEntries(
+      LOCAL_PROVIDERS[provider].capabilities.map((capability) => [capability, ["local"]]),
+    ) as Record<string, ReadonlyArray<AccessMode>>,
+  })),
+]
 
 export interface RoutedProvider {
   readonly provider: ProviderName

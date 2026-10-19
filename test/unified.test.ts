@@ -71,4 +71,51 @@ describe("mergeResults", () => {
     expect(merged.length).toBe(1)
     expect(merged[0]?.providers).toEqual(["parallel"])
   })
+
+  it("fuses by reciprocal rank, not raw cross-provider scores", () => {
+    const outcomes = [
+      {
+        provider: "exa" as const,
+        ok: true,
+        results: [row("https://a.com", { score: 0.99 }), row("https://b.com", { score: 0.98 })],
+      },
+      {
+        provider: "parallel" as const,
+        ok: true,
+        results: [row("https://b.com", { score: 0.1 }), row("https://c.com", { score: 0.05 })],
+      },
+    ]
+    const merged = mergeResults(outcomes)
+    expect(merged.map((r) => r.canonical_url)).toEqual(["https://b.com", "https://a.com", "https://c.com"])
+    expect(merged[0]?.ranks).toEqual({ exa: 2, parallel: 1 })
+    expect(merged[0]?.fusion_score).toBeCloseTo(1 / 62 + 1 / 61, 6)
+  })
+
+  it("counts only the first occurrence of a URL within one provider", () => {
+    const merged = mergeResults([
+      { provider: "exa" as const, ok: true, results: [row("https://a.com"), row("https://a.com/"), row("https://b.com")] },
+    ])
+    expect(merged.find((r) => r.canonical_url === "https://b.com")?.ranks).toEqual({ exa: 2 })
+  })
+})
+
+import { compareResults } from "../src/capabilities/compare"
+
+describe("compareResults", () => {
+  it("builds per-provider lists, pairwise overlap, and consensus from fused ranks", () => {
+    const merged = mergeResults([
+      { provider: "exa" as const, ok: true, results: [row("https://a.com"), row("https://b.com")] },
+      { provider: "keenable" as const, ok: true, results: [row("https://b.com"), row("https://c.com")] },
+    ])
+    const view = compareResults(merged, ["exa", "keenable"])
+    expect(view.summary).toEqual({ unique_urls: 3, corroborated_urls: 1, agreement_rate: 0.333 })
+    expect(view.overlap).toEqual([{ a: "exa", b: "keenable", shared: 1, jaccard: 0.333 }])
+    const exa = view.providers.find((p) => p.provider === "exa")!
+    expect(exa.results.map((r) => [r.rank, r.url, r.also_in])).toEqual([
+      [1, "https://a.com", []],
+      [2, "https://b.com", ["keenable"]],
+    ])
+    expect(exa.unique).toBe(1)
+    expect(view.consensus.map((c) => c.url)).toEqual(["https://b.com"])
+  })
 })

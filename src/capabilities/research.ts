@@ -12,11 +12,12 @@ import { routeProviders, Tier, withTier } from "../core/tiers"
 import { exaApi } from "../providers/exa"
 import { firecrawlApi } from "../providers/firecrawl"
 import { parallelApi } from "../providers/parallel"
+import { tinyfishApi } from "../providers/tinyfish"
 import { Domain, wantsPapers } from "./academic"
 import { papers as searchPapers } from "./papers"
 import { unifiedSearch } from "./search"
 
-const RESEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "firecrawl"]
+const RESEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "firecrawl", "tinyfish"]
 
 export const ResearchInput = Schema.Struct({
   query: Schema.NonEmptyString,
@@ -33,6 +34,7 @@ export const ResearchInput = Schema.Struct({
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  tinyfish: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 export type ResearchInput = typeof ResearchInput.Type
 
@@ -54,6 +56,7 @@ const startAndWait = (
   check: (remoteId: string) => Effect.Effect<unknown, unknown, AppEnv>,
   remoteIdOf: (startResult: unknown) => string | undefined,
   timeoutMs: number,
+  sourcesOf: (output: unknown) => ProviderResearchOutcome["sources"] = collectUrls,
 ): Effect.Effect<ProviderResearchOutcome, never, AppEnv> =>
   Effect.gen(function* () {
     const started = yield* start
@@ -71,9 +74,9 @@ const startAndWait = (
           ? String((checked as Record<string, unknown>).status).toLowerCase()
           : "unknown"
       if (["completed", "succeeded", "success", "done"].includes(status)) {
-        return { provider, ok: true, remote_id: remoteId, output: checked, sources: collectUrls(checked) }
+        return { provider, ok: true, remote_id: remoteId, output: checked, sources: sourcesOf(checked) }
       }
-      if (["failed", "error", "errored", "canceled", "cancelled"].includes(status)) {
+      if (["failed", "error", "errored", "canceled", "cancelled", "timed_out"].includes(status)) {
         return {
           provider,
           ok: false,
@@ -151,7 +154,7 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
     Effect.forEach(
     eligible,
     (provider): Effect.Effect<ProviderResearchOutcome, never, AppEnv> => {
-      const overrides = input[provider as "exa" | "parallel" | "firecrawl"] ?? {}
+      const overrides = input[provider as "exa" | "parallel" | "firecrawl" | "tinyfish"] ?? {}
       if (provider === "exa") {
         const effort = input.depth === "deep" ? "high" : input.depth === "quick" ? "low" : "medium"
         return startAndWait(
@@ -194,6 +197,27 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
                   : undefined
           },
           timeoutMs,
+        )
+      }
+      if (provider === "tinyfish") {
+        // Research API (beta): deep = 5-20 min, max = 5-45 min. No output_schema support.
+        return startAndWait(
+          provider,
+          tinyfishApi.researchStart({
+            query: input.query,
+            mode: input.depth === "deep" ? "max" : "deep",
+            ...overrides,
+          } as never),
+          (id) => tinyfishApi.researchCheck({ research_run_id: id }),
+          (result) => {
+            const r = result as Record<string, unknown>
+            return typeof r.research_run_id === "string" ? r.research_run_id : undefined
+          },
+          timeoutMs,
+          (output) => {
+            const run = (output as { run?: unknown }).run
+            return run ? tinyfishApi.researchSources(run as never) : collectUrls(output)
+          },
         )
       }
       return startAndWait(
@@ -307,7 +331,8 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
 export const researchCommand = makeJsonCommand({
   name: "research",
   commandName: "research",
-  description: "Composite deep-research: fan out to Exa/Parallel/Firecrawl agents (plus the keyless paper index for academic queries), fuse sources, score citation intersection",
+  description:
+    "Composite deep-research: fan out to Exa/Parallel/Firecrawl agents and TinyFish Research (plus the keyless paper index for academic queries), fuse sources, score citation intersection",
   schema: ResearchInput,
   run: (input) => research(input),
 })
@@ -333,6 +358,10 @@ registerContract({
       name: "free tier",
       description: "No account credits: keyless paper index plus keyless web search",
       input: { query: "Evidence on intermittent fasting and longevity in clinical trials", tier: "free" },
+    },
+    {
+      name: "exa + tinyfish jury",
+      input: { query: "Who maintains the Bun runtime?", providers: ["exa", "tinyfish"], tinyfish: { recency_minutes: 525600 } },
     },
   ],
 })
