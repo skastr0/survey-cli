@@ -4,6 +4,7 @@ import type { AppEnv } from "../core/env"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
+import { ApiResponseError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { loadProviderConfig, ProviderName } from "../core/registry"
@@ -84,8 +85,7 @@ const tryProvider = (
       const payload = yield* tinyfishApi.fetch({ urls: [input.url], format, ...overrides } as never)
       const first = payload.results[0]
       if (first === undefined || typeof first.text !== "string" || first.text.length === 0) {
-        return yield* Effect.fail({
-          _tag: "ApiResponseError" as const,
+        return yield* new ApiResponseError({
           provider,
           method: "POST",
           path: "/",
