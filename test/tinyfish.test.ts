@@ -174,6 +174,7 @@ const makeCorpus = () => {
       list: () => fail,
       scan: () => fail,
       remove: () => fail,
+      setTags: () => fail,
       stats: fail,
     })
   const layer = Layer.succeed(Corpus, service)

@@ -245,6 +245,8 @@ export class Corpus extends Context.Service<Corpus, {
     readonly limit: number
   }) => Effect.Effect<ReadonlyArray<DocumentRecord>, StoreError>
   readonly remove: (ref: DocumentRef) => Effect.Effect<number, StoreError>
+  /** Replace a document's tag set without touching its content, version or timestamps. */
+  readonly setTags: (id: number, tags: ReadonlyArray<string>) => Effect.Effect<boolean, StoreError>
   readonly stats: Effect.Effect<CorpusStats, StoreError>
 }>()("survey/Corpus") {
   static readonly layer = Layer.effect(
@@ -458,6 +460,14 @@ export class Corpus extends Context.Service<Corpus, {
             db.query(`DELETE FROM document_versions WHERE document_id = ?`).run(row.id)
             db.query(`DELETE FROM documents WHERE id = ?`).run(row.id)
             return 1
+          }),
+
+        setTags: (id, tags) =>
+          run("setTags", () => {
+            const result = db
+              .query(`UPDATE documents SET tags = ? WHERE id = ?`)
+              .run(JSON.stringify([...new Set(tags)].sort()), id)
+            return result.changes > 0
           }),
 
         stats: run("stats", () => {
