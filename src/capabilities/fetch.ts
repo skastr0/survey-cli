@@ -10,8 +10,9 @@ import { loadProviderConfig, ProviderName } from "../core/registry"
 import { exaApi } from "../providers/exa"
 import { firecrawlApi } from "../providers/firecrawl"
 import { keenableApi } from "../providers/keenable"
+import { tinyfishApi } from "../providers/tinyfish"
 
-const DEFAULT_ORDER = ["firecrawl", "keenable", "exa"] as const
+const DEFAULT_ORDER = ["firecrawl", "tinyfish", "keenable", "exa"] as const
 
 export const UnifiedFetchInput = Schema.Struct({
   url: Schema.NonEmptyString,
@@ -21,6 +22,7 @@ export const UnifiedFetchInput = Schema.Struct({
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  tinyfish: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 export type UnifiedFetchInput = typeof UnifiedFetchInput.Type
 
@@ -61,7 +63,9 @@ const tryProvider = (
           ? (input.keenable ?? {})
           : provider === "exa"
             ? (input.exa ?? {})
-            : {}
+            : provider === "tinyfish"
+              ? (input.tinyfish ?? {})
+              : {}
     if (provider === "firecrawl") {
       const format = input.format ?? "markdown"
       const payload = yield* firecrawlApi.scrape({
@@ -74,6 +78,23 @@ const tryProvider = (
     if (provider === "keenable") {
       const payload = yield* keenableApi.fetch({ url: input.url, ...overrides } as never)
       return { payload, ...extractContent(payload) }
+    }
+    if (provider === "tinyfish") {
+      const format = input.format === "html" ? "html" : "markdown"
+      const payload = yield* tinyfishApi.fetch({ urls: [input.url], format, ...overrides } as never)
+      const first = payload.results[0]
+      if (first === undefined || typeof first.text !== "string" || first.text.length === 0) {
+        return yield* Effect.fail({
+          _tag: "ApiResponseError" as const,
+          provider,
+          method: "POST",
+          path: "/",
+          status: 200,
+          message: payload.errors?.[0]?.error ?? `tinyfish returned no content for ${input.url}`,
+          body: payload,
+        })
+      }
+      return { payload, content: first.text, raw: payload }
     }
     if (provider === "exa") {
       const payload = yield* exaApi.contents({ url: input.url, ...overrides } as never)
@@ -94,7 +115,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 
   const attempted: Array<{ provider: string; ok: boolean; error?: unknown }> = []
   for (const provider of order) {
-    if (!["firecrawl", "keenable", "exa"].includes(provider)) {
+    if (!["firecrawl", "tinyfish", "keenable", "exa"].includes(provider)) {
       attempted.push({ provider, ok: false, error: "provider does not support fetch" })
       continue
     }
@@ -145,7 +166,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
-  description: "Fetch a URL with provider fallback (firecrawl → keenable → exa)",
+  description: "Fetch a URL with provider fallback (firecrawl → tinyfish → keenable → exa)",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
@@ -159,6 +180,10 @@ registerContract({
     {
       name: "keenable first",
       input: { url: "https://example.com", providers: ["keenable", "exa"] },
+    },
+    {
+      name: "tinyfish first",
+      input: { url: "https://example.com", providers: ["tinyfish", "keenable"], tinyfish: { ttl: 0 } },
     },
   ],
 })

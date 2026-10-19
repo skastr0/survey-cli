@@ -12,6 +12,7 @@ import { exaApi } from "../providers/exa"
 import { parallelApi } from "../providers/parallel"
 import { keenableApi } from "../providers/keenable"
 import { firecrawlApi } from "../providers/firecrawl"
+import { tinyfishApi } from "../providers/tinyfish"
 
 const SearchProviders = Schema.Array(ProviderName)
 
@@ -24,6 +25,7 @@ export const UnifiedSearchInput = Schema.Struct({
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  tinyfish: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 export type UnifiedSearchInput = typeof UnifiedSearchInput.Type
 
@@ -40,7 +42,9 @@ const runProvider = (
           ? (input.parallel ?? {})
           : provider === "keenable"
             ? (input.keenable ?? {})
-            : {}
+            : provider === "tinyfish"
+              ? (input.tinyfish ?? {})
+              : {}
     let payload: unknown
     if (provider === "exa") {
       payload = yield* exaApi.webSearch({ query: input.query, numResults: numResults, ...overrides } as never)
@@ -50,6 +54,10 @@ const runProvider = (
       payload = yield* keenableApi.search({ query: input.query, max_results: numResults, ...overrides } as never)
     } else if (provider === "firecrawl") {
       payload = yield* firecrawlApi.search({ query: input.query, limit: numResults, ...overrides } as never)
+    } else if (provider === "tinyfish") {
+      // No result-count parameter; trim the first page locally.
+      const page = yield* tinyfishApi.search({ query: input.query, ...overrides } as never)
+      payload = { ...page, results: page.results.slice(0, numResults) }
     } else {
       return {
         provider,
@@ -73,12 +81,12 @@ const runProvider = (
 export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
   input: UnifiedSearchInput,
 ) {
-  const requested = input.providers ?? (["exa", "parallel", "keenable", "firecrawl"] as const)
+  const requested = input.providers ?? (["exa", "parallel", "keenable", "firecrawl", "tinyfish"] as const)
 
   const eligible: Array<ProviderName> = []
   const skipped: Array<{ provider: string; reason: string }> = []
   for (const provider of requested) {
-    if (!["exa", "parallel", "keenable", "firecrawl"].includes(provider)) {
+    if (!["exa", "parallel", "keenable", "firecrawl", "tinyfish"].includes(provider)) {
       skipped.push({ provider, reason: "provider does not support unified search" })
       continue
     }
@@ -124,14 +132,14 @@ export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
 export const searchCommand = makeJsonCommand({
   name: "search",
   commandName: "search",
-  description: "Fan out a web search across Exa, Parallel, Keenable, and Firecrawl; dedupe by canonical URL with provider provenance",
+  description: "Fan out a web search across Exa, Parallel, Keenable, Firecrawl, and TinyFish; dedupe by canonical URL with provider provenance",
   schema: UnifiedSearchInput,
   run: (input) => unifiedSearch(input),
 })
 
 registerContract({
   command: "search",
-  description: "Unified cross-provider web search (Exa, Parallel, Keenable, Firecrawl) with dedupe and provenance",
+  description: "Unified cross-provider web search (Exa, Parallel, Keenable, Firecrawl, TinyFish) with dedupe and provenance",
   inputSchema: UnifiedSearchInput,
   examples: [
     {
@@ -141,6 +149,10 @@ registerContract({
     {
       name: "explicit providers",
       input: { query: "firecrawl v2 extract", providers: ["exa", "keenable"] },
+    },
+    {
+      name: "tinyfish news override",
+      input: { query: "web agents", providers: ["tinyfish"], tinyfish: { domain_type: "news", recency_minutes: 1440 } },
     },
   ],
 })
