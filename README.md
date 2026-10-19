@@ -124,8 +124,9 @@ the same contracts as `survey schema show`, read-only/destructive/open-world ann
 
 - Domain payloads are single JSON objects: inline, `@file`, `-`, or `@-`.
 - stdout: `{ "ok": true, "command": "...", "data": {...} }` — always.
-- stderr: `{ "ok": false, "command": "...", "error": {...} }` — always.
-- Flags are execution controls only: `--output`, `--concurrency`, `--timeout`, `--wait`.
+- stderr: `{ "ok": false, "command": "...", "error": { "type", "message", "details" } }` — always, including unparseable argv (`CliUsageError`). `details` always has `retryable` and `hint`, plus `next_step` when there is a concrete recovery call and `issues[{path, message}]` for schema mismatches.
+- Exit codes: `0` success, `1` failure (including a batch with any failed item, whose full results are still on stdout).
+- Flags are execution controls only (`--output`, `--concurrency`, `--timeout`, `--wait`, `--idempotency-key`), and they are per command: `survey capabilities` lists each command's flags, and every `--help` ends with a CONTRACT section.
 - State lives in `~/.config/survey` (`SURVEY_HOME` to override): `auth.json`, `store.db` (runs, sources, corpus), `artifacts/`, `tools/`.
 - Partial provider failure never discards success — results carry `providers[]` provenance and a `failures[]` array.
 
@@ -166,5 +167,5 @@ bun run smoke      # end-to-end against src (or: bun scripts/smoke.ts dist/surve
 bun run bump       # patch-bump every pinned version (or: bun scripts/bump.ts minor|1.2.3)
 ```
 
-See `AGENTS.md` for the Effect v4 conventions and `docs/porting.md` for the
+See `AGENTS.md` for the Effect v4 conventions, `CONTRIBUTING.md` for the command checklist, `docs/publishing.md` for releases, and `docs/porting.md` for the
 provider port contract.
