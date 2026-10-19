@@ -525,7 +525,7 @@ export const convertCommand = makeOneOrManyCommand({
   name: "convert",
   commandName: "convert",
   description:
-    "Local-first document → Markdown: PDFs classify then extract locally (scanned → LlamaCloud OCR if keyed), office files via anydoc",
+    "Local-first document to Markdown: PDFs via pdf-inspector (scanned: LlamaCloud OCR if keyed, else needs_ocr), office files via anydoc, dir for folders. Input: {path | url | base64 | dir, route?}. Returns {status, route, markdown?, corpus?}.",
   schema: UnifiedConvertInput,
   run: (input) => (input.dir !== undefined ? convertDirectory(input) : unifiedConvert(input)),
 })
@@ -533,11 +533,11 @@ export const convertCommand = makeOneOrManyCommand({
 registerContract({
   command: "convert",
   description:
-    "Local-first document to Markdown router. PDF → pdf-inspector classify: text-based extracts locally (free, private); scanned/image-only/mixed or garbled-font PDFs go to LlamaCloud parse when LLAMA_CLOUD_API_KEY is set, else return status needs_ocr with the classification. Non-PDF office files → anydoc. URLs are downloaded then converted locally. Every response names the route taken and why (route.selected, route.reason, route.trace). With dir (and optional glob, recursive, concurrency, max_files, dry_run, force) every matching file is converted and remembered, skipping files whose content hash already matches the corpus copy; the result lists a status per file (stored, updated, unchanged, skipped_unchanged, needs_ocr, failed). Complete conversions are remembered in the local corpus (kind document, url = source URL or file:// path) unless store is false; the response then carries corpus {id, version, changed, created}. route=local forbids any hosted call.",
+    "Local-first document to Markdown: PDFs via pdf-inspector (scanned: LlamaCloud OCR if keyed, else needs_ocr), office files via anydoc, dir for folders. Input: {path | url | base64 | dir, route?}. Returns {status, route, markdown?, corpus?}.",
   inputSchema: UnifiedConvertInput,
   batch: true,
   output:
-    "{ status: converted|needs_ocr, needs_ocr, complete, route: {selected, kind, engine, mode, reason, trace[]}, source, classification?, format?, markdown?, next_step?, corpus?: {id, version, changed, created} }",
+    "{ status: converted|needs_ocr, needs_ocr, complete, route: { selected, kind, engine, mode, version, reason, trace[{ step, engine, outcome }] }, source: { kind, path?, url?, filename?, content_type?, bytes }, format?, classification?, pdf?, pages_needing_ocr?, job_id?, chars?, markdown?, next_step?, corpus?: { id, version, changed, created } }; with dir: { dir, glob, recursive, dry_run, matched, processed, truncated, stored, updated, unchanged, skipped_unchanged, converted, needs_ocr, failed, results[{ path, relative, status, corpus?, route?, detail?, error? }] }; array input returns a batch summary { outcome, total, success_count, error_count, concurrency, results[{ index, ok, data?, error? }] }",
   examples: [
     { name: "local file, any format", input: { path: "./paper.pdf" } },
     { name: "document url, keyless", input: { url: "https://example.com/report.docx" } },

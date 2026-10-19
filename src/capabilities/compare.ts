@@ -69,7 +69,7 @@ export const compareCommand = makeJsonCommand({
   name: "compare",
   commandName: "compare",
   description:
-    "Run one fan-out search and compare providers side by side: each provider's ranked list (with which other providers also found each URL), pairwise Jaccard overlap, consensus URLs, and agreement rate. Same input as `search`.",
+    "Fan out one search and compare providers: ranked lists, pairwise Jaccard overlap, consensus URLs, agreement rate. Input: same as search {query, providers?, num_results?}. Returns {providers, overlap, consensus, summary}.",
   schema: UnifiedSearchInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -85,7 +85,10 @@ export const compareCommand = makeJsonCommand({
 
 registerContract({
   command: "compare",
-  description: "Side-by-side provider comparison for one query (overlap, consensus, unique finds)",
+  description:
+    "Fan out one search and compare providers: ranked lists, pairwise Jaccard overlap, consensus URLs, agreement rate. Input: same as search {query, providers?, num_results?}. Returns {providers, overlap, consensus, summary}.",
+  output:
+    "{ query, providers[{ provider, count, unique, corroborated, results[{ rank, url, title, also_in[] }] }], overlap[{ a, b, shared, jaccard }], consensus[{ url, title, providers[], ranks, fusion_score }], summary: { unique_urls, corroborated_urls, agreement_rate }, failures[{ provider, error }], skipped[{ provider, reason }] }",
   inputSchema: UnifiedSearchInput,
   examples: [
     { name: "all configured providers", input: { query: "vector database benchmarks 2026", num_results: 10 } },

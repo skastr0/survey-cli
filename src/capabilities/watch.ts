@@ -94,7 +94,7 @@ export const watchCommand = makeJsonCommand({
   name: "watch",
   commandName: "watch",
   description:
-    "Re-fetch a watch list (explicit urls plus every corpus document tagged `watch` or `tag`) and report new/changed/unchanged/failed pages with line diffs of what changed. Watched URLs are tagged so later runs need no input. Schedule it with cron or an agent loop.",
+    "Re-fetch a watch list (urls plus corpus docs tagged `watch` or tag; new URLs get tagged) and report what moved, with line diffs. Input: {urls?, tag?, providers?, include_diff?}. Returns {changed, new, unchanged, failed}.",
   schema: WatchInput,
   optionalInput: true,
   run: watchRun,
@@ -102,7 +102,10 @@ export const watchCommand = makeJsonCommand({
 
 registerContract({
   command: "watch",
-  description: "DIY page monitoring via corpus change detection and diffs",
+  description:
+    "Re-fetch a watch list (urls plus corpus docs tagged `watch` or tag; new URLs get tagged) and report what moved, with line diffs. Input: {urls?, tag?, providers?, include_diff?}. Returns {changed, new, unchanged, failed}.",
+  output:
+    "{ tag, checked, changed[{ url, status, provider, id, version, diff?: { mode, added, removed, unchanged, hunks[{ old_start, new_start, lines[] }], total_hunks } }], new[{ url, status, provider, id, version }], unchanged[url], failed[{ url, status, error }], checked_at }",
   inputSchema: WatchInput,
   examples: [
     { name: "start watching", input: { urls: ["https://example.com/pricing", "https://example.com/changelog"] } },

@@ -57,14 +57,15 @@ export const sqlQuery = Effect.fn("sqlQuery")(function* (input: SqlInput) {
 export const sqlCommand = makeJsonCommand({
   name: "sql",
   commandName: "sql",
-  description: "Run a SQL query — Keenable SELECT over the live web, or local store.db with local:true",
+  description: "Run SQL: a Keenable SELECT over the live web, or a read-only SELECT on the local store.db with local:true. Input: {query, local?, limit? (local only)}. Returns {engine, result} or {engine, path, rows, count}.",
   schema: SqlInput,
   run: (input) => sqlQuery(input),
 })
 
 registerContract({
   command: "sql",
-  description: "SQL over live web (Keenable) or the local survey store",
+  description: "Run SQL: a Keenable SELECT over the live web, or a read-only SELECT on the local store.db with local:true. Input: {query, local?, limit? (local only)}. Returns {engine, result} or {engine, path, rows, count}.",
+  output: "Keenable: { engine: \"keenable\", result } (raw Keenable select response); local: { engine: \"sqlite\", path, rows[], count }",
   inputSchema: SqlInput,
   examples: [
     { name: "keenable select", input: { query: "SELECT * FROM web_search('effect ts') LIMIT 5" } },
