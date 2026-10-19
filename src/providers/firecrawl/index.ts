@@ -20,6 +20,10 @@ import {
   interactStop,
   mapSite,
   parseFile,
+  researchInspectPaper,
+  researchReadPaper,
+  researchRelatedPapers,
+  researchSearchPapers,
   scrape,
   searchWeb,
   waitForJob,
@@ -32,6 +36,7 @@ import {
   interactCommand,
   mapCommand,
   parseCommand,
+  researchCommand,
   scrapeCommand,
   searchCommand,
 } from "./commands"
@@ -41,7 +46,7 @@ import "./capabilities"
 
 export const firecrawlCommand = Command.make("firecrawl").pipe(
   Command.withDescription(
-    "Firecrawl v2 provider namespace — scrape, map, search, parse, batch, crawl, agent, extract, interact",
+    "Firecrawl v2 provider namespace — scrape, map, search, parse, batch, crawl, agent, extract, interact, research (paper index). search/scrape/parse/interact/research work keyless.",
   ),
   Command.withSubcommands([
     scrapeCommand,
@@ -53,6 +58,7 @@ export const firecrawlCommand = Command.make("firecrawl").pipe(
     agentCommand,
     extractCommand,
     interactCommand,
+    researchCommand,
   ]),
 )
 
@@ -79,4 +85,8 @@ export const firecrawlApi = {
   interactExecute,
   interactStop,
   waitForJob,
+  searchPapers: researchSearchPapers,
+  inspectPaper: researchInspectPaper,
+  readPaper: researchReadPaper,
+  relatedPapers: researchRelatedPapers,
 }

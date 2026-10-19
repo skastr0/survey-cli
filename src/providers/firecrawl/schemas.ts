@@ -582,3 +582,98 @@ export interface ProviderJobSnapshot {
   readonly data_count?: number | undefined
   readonly provider_response: unknown
 }
+
+/* ------------------------------------------------------------------------ */
+/* Research Index (/v2/search/research/*) — keyless; a key only raises limits */
+/* Field names are the provider's own query parameters.                      */
+/* ------------------------------------------------------------------------ */
+
+const PaperRefSchema = Schema.NonEmptyString.annotate({
+  description: "Canonical paperId or source primaryId (arxiv:<id>, pmid:<id>, pmcid:<id>, doi:<id>).",
+})
+
+const StringOrListSchema = Schema.Union([Schema.String, Schema.Array(Schema.String)])
+
+export const RESEARCH_RELATED_MODES = ["similar", "citers", "references"] as const
+
+export const ResearchSearchPapersInputSchema = Schema.Struct({
+  query: Schema.NonEmptyString,
+  k: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 500 }))),
+  authors: Schema.optional(StringOrListSchema),
+  categories: Schema.optional(StringOrListSchema),
+  from: Schema.optional(Schema.String),
+  to: Schema.optional(Schema.String),
+}).annotate({
+  title: "Research search-papers input",
+  description: "GET /search/research/papers: ranked papers from the ~43M-abstract index (arXiv, PubMed, bioRxiv, medRxiv).",
+})
+export type ResearchSearchPapersInput = typeof ResearchSearchPapersInputSchema.Type
+
+export const ResearchSearchPapersCommandInputSchema = Schema.Union([
+  ResearchSearchPapersInputSchema,
+  Schema.Array(ResearchSearchPapersInputSchema),
+])
+
+export const ResearchInspectPaperInputSchema = Schema.Struct({
+  id: PaperRefSchema,
+}).annotate({
+  title: "Research inspect-paper input",
+  description: "GET /search/research/papers/{id}: paper metadata (authors, categories, dates, source ids).",
+})
+export type ResearchInspectPaperInput = typeof ResearchInspectPaperInputSchema.Type
+
+export const ResearchInspectPaperCommandInputSchema = Schema.Union([
+  ResearchInspectPaperInputSchema,
+  Schema.Array(ResearchInspectPaperInputSchema),
+])
+
+export const ResearchReadPaperInputSchema = Schema.Struct({
+  id: PaperRefSchema,
+  query: Schema.NonEmptyString.annotate({ description: "Question to retrieve full-text passages for." }),
+  k: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 50 }))),
+}).annotate({
+  title: "Research read-paper input",
+  description: "GET /search/research/papers/{id}?query=...: top full-text passages for a question.",
+})
+export type ResearchReadPaperInput = typeof ResearchReadPaperInputSchema.Type
+
+export const ResearchReadPaperCommandInputSchema = Schema.Union([
+  ResearchReadPaperInputSchema,
+  Schema.Array(ResearchReadPaperInputSchema),
+])
+
+export const ResearchRelatedPapersInputSchema = Schema.Struct({
+  id: PaperRefSchema,
+  intent: Schema.NonEmptyString.annotate({ description: "Natural-language ranking intent." }),
+  mode: Schema.optional(Schema.Literals(RESEARCH_RELATED_MODES)),
+  k: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 500 }))),
+  rerank: Schema.optional(Schema.Boolean),
+  anchor: Schema.optional(Schema.Array(PaperRefSchema)),
+}).annotate({
+  title: "Research related-papers input",
+  description: "GET /search/research/papers/{id}/similar: co-citation neighbours, citers, or references.",
+})
+export type ResearchRelatedPapersInput = typeof ResearchRelatedPapersInputSchema.Type
+
+export const ResearchRelatedPapersCommandInputSchema = Schema.Union([
+  ResearchRelatedPapersInputSchema,
+  Schema.Array(ResearchRelatedPapersInputSchema),
+])
+
+/** Paper record as documented for search and similar results. */
+export interface ResearchPaperResult {
+  readonly paperId: string
+  readonly primaryId?: string
+  readonly ids?: Readonly<Record<string, ReadonlyArray<string>>>
+  readonly title?: string
+  readonly abstract?: string
+  readonly score?: number
+  readonly authors?: string
+}
+
+export interface ResearchPassage {
+  readonly text: string
+  readonly score?: number
+}
+
+export type AuthMode = "keyed" | "public"

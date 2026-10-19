@@ -39,6 +39,11 @@ import {
   interactExecute,
   interactStop,
   isRecord,
+  researchInspectPaper,
+  researchReadPaper,
+  researchRelatedPapers,
+  researchSearchPapers,
+  runResearchCommand,
   runMapCommand,
   runParseCommand,
   runScrapeCommand,
@@ -72,12 +77,17 @@ import {
   JobIdInputSchema,
   MapCommandInputSchema,
   ParseCommandInputSchema,
+  ResearchInspectPaperCommandInputSchema,
+  ResearchReadPaperCommandInputSchema,
+  ResearchRelatedPapersCommandInputSchema,
+  ResearchSearchPapersCommandInputSchema,
   ScrapeCommandInputSchema,
   SearchCommandInputSchema,
   WaitInputSchema,
   type NormalizedJobStatus,
   type ProviderJobSnapshot,
 } from "./schemas"
+import { paperSources } from "./papers"
 
 /* ------------------------------------------------------------------------ */
 /* Run registry + source ledger (best-effort)                                */
@@ -142,6 +152,19 @@ const trackBatchSources = (result: unknown) => {
         : Effect.void,
     { discard: true },
   ).pipe(Effect.catchCause(() => Effect.void))
+}
+
+/** Research Index results land in the ledger under canonical paper refs. */
+const trackPaperSources = (result: unknown) => {
+  const payloads =
+    isRecord(result) && Array.isArray(result.results) && "outcome" in result
+      ? result.results.flatMap((item) =>
+          isRecord(item) && item.ok === true && "data" in item ? [item.data] : [],
+        )
+      : [result]
+  return recordSources("firecrawl", payloads.flatMap((payload) => paperSources(payload))).pipe(
+    Effect.catchCause(() => Effect.void),
+  )
 }
 
 /* ------------------------------------------------------------------------ */
@@ -755,4 +778,60 @@ export const interactCommand = Command.make(
     "Interact with a scrape-bound browser session using prompt or code. Requires data.metadata.scrapeId from scrape.",
   ),
   Command.withSubcommands([interactExecuteCommand, interactStopCommand]),
+)
+
+/* ------------------------------------------------------------------------ */
+/* research (Research Index, keyless)                                        */
+/* ------------------------------------------------------------------------ */
+
+const researchSearchPapersCommand = makeLocalBatchCommand({
+  name: "search-papers",
+  commandName: "firecrawl research search-papers",
+  description: "Search the Research Index for ranked papers (keyless; a key raises rate limits)",
+  schema: ResearchSearchPapersCommandInputSchema,
+  validate: (input) => Effect.succeed(input),
+  run: (input, concurrency) => runResearchCommand(input, concurrency, researchSearchPapers),
+  after: trackPaperSources,
+})
+
+const researchInspectPaperCommand = makeLocalBatchCommand({
+  name: "inspect-paper",
+  commandName: "firecrawl research inspect-paper",
+  description: "Inspect paper metadata by paperId or primaryId (arxiv:, pmid:, pmcid:, doi:)",
+  schema: ResearchInspectPaperCommandInputSchema,
+  validate: (input) => Effect.succeed(input),
+  run: (input, concurrency) => runResearchCommand(input, concurrency, researchInspectPaper),
+  after: trackPaperSources,
+})
+
+const researchReadPaperCommand = makeLocalBatchCommand({
+  name: "read-paper",
+  commandName: "firecrawl research read-paper",
+  description: "Read the top full-text passages of a paper for a question",
+  schema: ResearchReadPaperCommandInputSchema,
+  validate: (input) => Effect.succeed(input),
+  run: (input, concurrency) => runResearchCommand(input, concurrency, researchReadPaper),
+  after: trackPaperSources,
+})
+
+const researchRelatedPapersCommand = makeLocalBatchCommand({
+  name: "related-papers",
+  commandName: "firecrawl research related-papers",
+  description: "Expand a seed paper to similar papers, citers, or references, ranked by intent",
+  schema: ResearchRelatedPapersCommandInputSchema,
+  validate: (input) => Effect.succeed(input),
+  run: (input, concurrency) => runResearchCommand(input, concurrency, researchRelatedPapers),
+  after: trackPaperSources,
+})
+
+export const researchCommand = Command.make("research").pipe(
+  Command.withDescription(
+    "Firecrawl Research Index (/v2/search/research): ~43M papers from arXiv, PubMed, bioRxiv, medRxiv. Works without FIRECRAWL_API_KEY.",
+  ),
+  Command.withSubcommands([
+    researchSearchPapersCommand,
+    researchInspectPaperCommand,
+    researchReadPaperCommand,
+    researchRelatedPapersCommand,
+  ]),
 )
