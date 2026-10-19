@@ -16,7 +16,7 @@
     "@effect/platform-node-shared": "4.0.0-rc.112",
     "effect": "4.0.0-rc.112"
   },
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Agent-first research CLI — Exa, Firecrawl, Parallel, Keenable, TinyFish, LlamaCloud plus local PDF/doc tools, a searchable corpus, pipelines and an MCP server in one JSON-first binary. Free tiers work without keys.",
   "scripts": {
     "dev": "bun run ./src/cli.ts",

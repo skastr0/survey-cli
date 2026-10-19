@@ -7,9 +7,9 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [Unreleased]
 
-## [0.1.5] - 2026-10-19
+## [0.1.6] - 2026-10-19
 
-First release since 0.1.1. Versions 0.1.2–0.1.4 were bumped in the workspace
+First release since 0.1.1. Versions 0.1.2–0.1.5 were bumped in the workspace
 but never tagged or published.
 
 ### Added
@@ -32,14 +32,20 @@ but never tagged or published.
   research/verify reports are versioned and FTS5-indexed in `store.db`
   (`corpus add|search|grep|read|diff|versions|list|stats|remove|prune`).
   `fetch` gains a `max_age_ms` cache and a `changed` flag; `search {read_top}`
-  reads the top fused results into the corpus.
+  reads the top fused results into the corpus. Agents curate and hand off with
+  `corpus tag`, `corpus links` (outbound URLs, `new_only` for unread ones),
+  `corpus export` (jsonl, markdown, or a markdown bundle), and `corpus import`
+  (idempotent jsonl round-trip with version history).
 - **Composition**: `pipe` runs declarative multi-step pipelines over survey
   commands; `mcp serve` exposes every command as an MCP tool over stdio
   (`mcp tools`, `mcp config` for client setup, per-call `timeout_ms`).
 - **Research**: `papers` (Firecrawl Research Index with an arXiv web fallback),
   `firecrawl research *` paper commands, and `domain: auto|web|academic` on
   `research` and `verify`; `compare` shows providers side by side; `watch`
-  detects page changes.
+  detects page changes. `research start|check|wait|inspect` runs the jury
+  without blocking. `verify` and research citations count independent
+  sources: the same page, registrable domain, or syndicated copy counts once
+  (`independent_sources`, `source_groups`, `confidence_basis`).
 - **Agent discovery**: every `--help` ends with a CONTRACT section (input mode,
   required fields, return shape, examples, schema pointer). `capabilities`
   lists each command's real flags, input mode, required fields, exit codes,
@@ -83,6 +89,19 @@ but never tagged or published.
 - `mcp serve` no longer answers notifications or crashes on malformed messages.
 - Corpus search quotes stray `AND/OR/NOT`, file keys keep `#`/`?`, and empty
   diffs have no phantom line.
+- Concurrent survey processes (pipe `foreach`, parallel agents) failed with
+  `database is locked` or `no such table`; writes and first-run migrations now
+  take the SQLite write lock up front and wait up to 15 s.
+- Live validation against every provider fixed: Llama parse decode
+  (`user_metadata: null`), Exa keyless fetch truncation, Parallel keyless
+  `num_results`, Parallel task schema defaults, Exa verify citations, objective-
+  only `extract`, and unrecorded async Firecrawl extract runs.
+- `pipe` exits 1 when any step failed; `research start` fails when no member
+  can start; missing corpus documents, runs, and research ids raise
+  `NotFoundError`; `runs inspect` returns the refreshed status and run
+  `payload` is an object, not a JSON string.
+- Pipe references: `$.50`-style strings stay literal, `{{ name }}` that is not
+  a reference passes through, and malformed slices are rejected.
 - Advertised input schemas no longer show phantom `null` branches; `runs`,
   `sources`, `llama`, `exa`, and `parallel monitors list` have complete
   contracts.
