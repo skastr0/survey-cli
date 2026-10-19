@@ -3,6 +3,7 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 
 import { USER_AGENT } from "../../core/constants"
 import { ApiRequestError, ApiResponseError, CommandInputError } from "../../core/errors"
+import { rememberDocument } from "../../core/corpus"
 import { requestJson, requestText } from "../../core/http"
 import { loadProviderConfig, requireCredential } from "../../core/registry"
 import { extractUrls, recordRun, recordSources, updateRun } from "../../core/runs"
@@ -19,6 +20,7 @@ import {
   ResearchListSchema,
   ResearchRunSchema,
   SearchResponseSchema,
+  type AgentCheckInput,
   type AgentListInput,
   type AgentRun,
   type AgentRunIdInput,
@@ -29,6 +31,7 @@ import {
   type BrowserCreateInput,
   type BrowserListInput,
   type BrowserSessionIdInput,
+  type FetchCommandInput,
   type FetchInput,
   type MonitorCreateInput,
   type MonitorIdInput,
@@ -172,6 +175,67 @@ export const fetchPages = Effect.fn("tinyfish.fetch")(function* (input: FetchInp
   )
   return data
 })
+
+interface CorpusOptions {
+  readonly store?: boolean | undefined
+  readonly tags?: ReadonlyArray<string> | undefined
+}
+
+const corpusRef = (put: { id: number; version: number; changed: boolean; created: boolean }) => ({
+  id: put.id,
+  version: put.version,
+  changed: put.changed,
+  created: put.created,
+})
+
+/**
+ * `tinyfish fetch` command: fetch, then keep each string result (markdown or
+ * html) in the local corpus. format=json returns a document tree, not text,
+ * so it is not stored. The unified `fetch` stores on its own and calls
+ * fetchPages directly, so it never double-writes.
+ */
+export const fetchAndRemember = Effect.fn("tinyfish.fetchAndRemember")(function* (input: FetchCommandInput) {
+  const { store, tags, ...request } = input
+  const data = yield* fetchPages(request)
+  if (store === false) return data
+  const corpus = yield* Effect.forEach(data.results, (result) =>
+    typeof result.text !== "string" || result.text.length === 0
+      ? Effect.succeed([])
+      : rememberDocument({
+          url: result.url,
+          content: result.text,
+          title: typeof result.title === "string" ? result.title : undefined,
+          provider: "tinyfish",
+          kind: "web",
+          tags,
+          metadata: { final_url: result.final_url ?? null, format: result.format ?? null },
+        }).pipe(Effect.map((put) => (put === undefined ? [] : [{ url: result.url, ...corpusRef(put) }]))),
+  )
+  return { ...data, corpus: corpus.flat() }
+})
+
+/** Agent results are structured JSON keyed by run id; only COMPLETED runs with a result are kept. */
+const rememberAgentRun = (
+  run: { readonly run_id: string; readonly status: string; readonly result?: unknown; readonly goal?: unknown },
+  options: CorpusOptions & { readonly target_url?: string | undefined },
+) =>
+  options.store === false || run.status !== "COMPLETED" || run.result === undefined || run.result === null
+    ? Effect.succeed(undefined)
+    : rememberDocument({
+        url: `tinyfish://agent/runs/${run.run_id}`,
+        content: JSON.stringify(run.result, null, 2),
+        title: typeof run.goal === "string" ? run.goal : undefined,
+        provider: "tinyfish",
+        kind: "agent",
+        tags: options.tags,
+        metadata: {
+          run_id: run.run_id,
+          ...(typeof run.goal === "string" ? { goal: run.goal } : {}),
+          ...(options.target_url !== undefined ? { target_url: options.target_url } : {}),
+        },
+      }).pipe(Effect.map((put) => (put === undefined ? undefined : corpusRef(put))))
+
+const withCorpus = (ref: ReturnType<typeof corpusRef> | undefined) => (ref === undefined ? {} : { corpus: ref })
 
 export const usage = Effect.fn("tinyfish.usage")(function* (input: UsageInput) {
   const { product, ...query } = input
@@ -391,12 +455,20 @@ const AGENT_NEXT_ACTIONS = {
   list: "tinyfish agent list",
 }
 
-const stripWait = <
-  A extends { readonly max_wait_seconds?: number | undefined; readonly poll_interval_seconds?: number | undefined },
+type LocalFields = "max_wait_seconds" | "poll_interval_seconds" | "store" | "tags"
+
+/** Drop CLI-local controls before a body goes to TinyFish. */
+const stripLocal = <
+  A extends {
+    readonly max_wait_seconds?: number | undefined
+    readonly poll_interval_seconds?: number | undefined
+    readonly store?: boolean | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+  },
 >(
   input: A,
-): Omit<A, "max_wait_seconds" | "poll_interval_seconds"> => {
-  const { max_wait_seconds: _max, poll_interval_seconds: _poll, ...rest } = input
+): Omit<A, LocalFields> => {
+  const { max_wait_seconds: _max, poll_interval_seconds: _poll, store: _store, tags: _tags, ...rest } = input
   return rest
 }
 
@@ -462,13 +534,12 @@ const agentSnapshot = (run: AgentRun) => ({
   ...(isTerminal(run.status) ? {} : { next_action: "tinyfish agent wait", next_actions: AGENT_NEXT_ACTIONS }),
 })
 
-export const agentCheck = Effect.fn("tinyfish.agentCheck")(function* (input: AgentRunIdInput) {
-  const run = yield* agentGet(input)
-  if (isTerminal(run.status)) {
-    yield* syncRunByRemote(run.run_id, run.status)
-    yield* recordSources("tinyfish", extractUrls(run.result ?? null))
-  }
-  return agentSnapshot(run)
+export const agentCheck = Effect.fn("tinyfish.agentCheck")(function* (input: AgentCheckInput) {
+  const run = yield* agentGet({ run_id: input.run_id, screenshots: input.screenshots, html: input.html })
+  if (!isTerminal(run.status)) return agentSnapshot(run)
+  yield* syncRunByRemote(run.run_id, run.status)
+  yield* recordSources("tinyfish", extractUrls(run.result ?? null))
+  return { ...agentSnapshot(run), ...withCorpus(yield* rememberAgentRun(run, input)) }
 })
 
 const pollUntilTerminal = <A extends { readonly status: string }, E, R>(options: {
@@ -495,25 +566,26 @@ export const agentWait = Effect.fn("tinyfish.agentWait")(function* (input: Agent
     maxWaitSeconds: input.max_wait_seconds ?? 300,
     pollIntervalSeconds: input.poll_interval_seconds ?? 5,
   })
-  if (!timed_out) {
-    yield* syncRunByRemote(current.run_id, current.status)
-    yield* recordSources("tinyfish", extractUrls(current.result ?? null))
-  }
-  return { ...agentSnapshot(current), timed_out }
+  if (timed_out) return { ...agentSnapshot(current), timed_out }
+  yield* syncRunByRemote(current.run_id, current.status)
+  yield* recordSources("tinyfish", extractUrls(current.result ?? null))
+  return { ...agentSnapshot(current), timed_out, ...withCorpus(yield* rememberAgentRun(current, input)) }
 })
 
 export const agentRun = Effect.fn("tinyfish.agentRun")(function* (input: AgentRunInput) {
-  const started = yield* agentStart(stripWait(input))
+  const started = yield* agentStart(stripLocal(input))
   return yield* agentWait({
     run_id: started.run_id,
     max_wait_seconds: input.max_wait_seconds,
     poll_interval_seconds: input.poll_interval_seconds,
+    store: input.store,
+    tags: input.tags,
   })
 })
 
 /** Start a run on POST /v1/automation/run-sse and collect events until COMPLETE. */
 export const agentStream = Effect.fn("tinyfish.agentStream")(function* (input: AgentStreamInput) {
-  const { max_wait_seconds, ...body } = input
+  const { max_wait_seconds, store, tags, ...body } = input
   const streamed = yield* readEventStream({
     method: "POST",
     path: "/v1/automation/run-sse",
@@ -539,6 +611,13 @@ export const agentStream = Effect.fn("tinyfish.agentStream")(function* (input: A
     })
   }
   yield* recordSources("tinyfish", extractUrls(complete?.result ?? null))
+  const remembered =
+    runId === undefined
+      ? undefined
+      : yield* rememberAgentRun(
+          { run_id: runId, status, result: complete?.result, goal: body.goal },
+          { store, tags, target_url: body.url },
+        )
   return {
     run_id: runId ?? null,
     status,
@@ -549,6 +628,7 @@ export const agentStream = Effect.fn("tinyfish.agentStream")(function* (input: A
     event_count: events.length,
     events,
     ...(runId && !complete ? { next_action: "tinyfish agent wait" } : {}),
+    ...withCorpus(remembered),
   }
 })
 
@@ -753,7 +833,7 @@ export const researchWait = Effect.fn("tinyfish.researchWait")(function* (input:
 })
 
 export const researchRun = Effect.fn("tinyfish.researchRun")(function* (input: ResearchRunInput) {
-  const started = yield* researchStart(stripWait(input))
+  const started = yield* researchStart(stripLocal(input))
   return yield* researchWait({
     research_run_id: started.research_run_id,
     max_wait_seconds: input.max_wait_seconds,

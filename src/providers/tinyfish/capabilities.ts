@@ -1,6 +1,7 @@
 import { registerContracts } from "../../core/discovery"
 import {
   AgentListInputSchema,
+  AgentCheckInputSchema,
   AgentRunIdInputSchema,
   AgentRunInputSchema,
   AgentRunRefInputSchema,
@@ -11,7 +12,7 @@ import {
   BrowserListInputSchema,
   BrowserSessionIdInputSchema,
   EmptyInputSchema,
-  FetchInputSchema,
+  FetchCommandInputSchema,
   MonitorCreateInputSchema,
   MonitorIdInputSchema,
   MonitorUpdateInputSchema,
@@ -59,11 +60,12 @@ registerContracts([
   {
     command: "tinyfish fetch",
     description:
-      "Fetch 1-10 URLs in parallel (POST https://api.fetch.tinyfish.ai) as markdown (default), html, or a json document tree. Per-URL failures land in errors[]. Free 1,000 URLs/day on a keyed account.",
-    inputSchema: FetchInputSchema,
+      "Fetch 1-10 URLs in parallel (POST https://api.fetch.tinyfish.ai) as markdown (default), html, or a json document tree. Per-URL failures land in errors[]. Free 1,000 URLs/day on a keyed account. markdown/html results are kept in the local corpus (kind web; store:false opts out, tags labels them).",
+    inputSchema: FetchCommandInputSchema,
     batch: true,
     examples: [
       { name: "markdown", input: { urls: ["https://example.com"] } },
+      { name: "no corpus write", input: { urls: ["https://example.com"], store: false } },
       {
         name: "links and metadata",
         input: { urls: ["https://example.com", "https://example.org"], links: true, page_metadata: true },
@@ -172,9 +174,13 @@ registerContracts([
   },
   {
     command: "tinyfish agent check",
-    description: "Get a run's status and result; terminal runs update the local run registry.",
-    inputSchema: AgentRunIdInputSchema,
-    examples: [{ name: "check", input: { run_id: RUN_ID } }],
+    description:
+      "Get a run's status and result; terminal runs update the local run registry. COMPLETED results are kept in the local corpus as tinyfish://agent/runs/<run_id> (kind agent; store:false opts out). Same for agent run/wait/stream.",
+    inputSchema: AgentCheckInputSchema,
+    examples: [
+      { name: "check", input: { run_id: RUN_ID } },
+      { name: "check, tag the stored result", input: { run_id: RUN_ID, tags: ["pricing"] } },
+    ],
   },
   {
     command: "tinyfish agent inspect",

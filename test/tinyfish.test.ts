@@ -11,6 +11,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
 import { unifiedFetch } from "../src/capabilities/fetch"
 import { research } from "../src/capabilities/research"
 import { unifiedSearch } from "../src/capabilities/search"
+import { Corpus, hashContent, type PutDocument } from "../src/core/corpus"
 import { getContract, listContracts } from "../src/core/discovery"
 import { Store, type RunRecord, type SourceRecord } from "../src/core/store"
 import {
@@ -23,6 +24,7 @@ import {
   browserClose,
   browserCreate,
   browserInspect,
+  fetchAndRemember,
   fetchPages,
   monitorCreate,
   monitorDelete,
@@ -136,8 +138,52 @@ const makeStore = () => {
   return { layer, sources, runs }
 }
 
-const testLayer = (store: ReturnType<typeof makeStore>) =>
+/** In-memory Corpus that versions by content hash, like the SQLite service. */
+const makeCorpus = () => {
+  const puts: Array<PutDocument> = []
+  const docs = new Map<string, { id: number; version: number; hash: string }>()
+  const fail = Effect.die("unused in tinyfish tests")
+  const layer = Layer.succeed(
+    Corpus,
+    Corpus.of({
+      put: (doc) =>
+        Effect.sync(() => {
+          puts.push(doc)
+          const hash = hashContent(doc.content)
+          const existing = docs.get(doc.url)
+          const changed = existing === undefined || existing.hash !== hash
+          const next = {
+            id: existing?.id ?? docs.size + 1,
+            version: existing === undefined ? 1 : changed ? existing.version + 1 : existing.version,
+            hash,
+          }
+          docs.set(doc.url, next)
+          return {
+            id: next.id,
+            canonical_url: doc.url,
+            version: next.version,
+            content_hash: hash,
+            created: existing === undefined,
+            changed,
+            previous_hash: changed && existing ? existing.hash : null,
+          }
+        }),
+      get: () => Effect.succeed(undefined),
+      versions: () => fail,
+      versionContent: () => fail,
+      search: () => fail,
+      list: () => fail,
+      scan: () => fail,
+      remove: () => fail,
+      stats: fail,
+    }),
+  )
+  return { layer, puts }
+}
+
+const testLayer = (store: ReturnType<typeof makeStore>, corpus?: ReturnType<typeof makeCorpus>) =>
   Layer.mergeAll(
+    corpus?.layer ?? Layer.empty,
     FetchHttpClient.layer,
     FileSystem.layerNoop({
       exists: () => Effect.succeed(false),
@@ -805,6 +851,120 @@ describe("tinyfish in unified commands", () => {
           ])
         }),
     ).pipe(Effect.provide(testLayer(store)))
+  })
+})
+
+/* ------------------------------------------------------------------------ */
+/* Corpus                                                                    */
+/* ------------------------------------------------------------------------ */
+
+describe("tinyfish → corpus", () => {
+  it.effect("fetch command keeps markdown results, honours tags and store:false", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    return withServer(
+      (_request, response) => json(response, 200, fetchPayload),
+      (requests) =>
+        Effect.gen(function* () {
+          const kept = yield* fetchAndRemember({ urls: ["https://example.com"], tags: ["docs"] })
+          expect(requests[0]?.body).toEqual({ urls: ["https://example.com"] })
+          expect(kept.corpus).toEqual([{ url: "https://example.com", id: 1, version: 1, changed: true, created: true }])
+          expect(corpus.puts[0]).toMatchObject({
+            url: "https://example.com",
+            content: "# Example Domain",
+            title: "Example Domain",
+            provider: "tinyfish",
+            kind: "web",
+            tags: ["docs"],
+            metadata: { final_url: "https://example.com/", format: "markdown" },
+          })
+
+          const again = yield* fetchAndRemember({ urls: ["https://example.com"] })
+          expect(again).toMatchObject({ corpus: [{ version: 1, changed: false, created: false }] })
+
+          const skipped = yield* fetchAndRemember({ urls: ["https://example.com"], store: false })
+          expect("corpus" in skipped).toBe(false)
+          expect(corpus.puts).toHaveLength(2)
+        }),
+    ).pipe(Effect.provide(testLayer(store, corpus)))
+  })
+
+  it.effect("fetch command skips json document trees", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    return withServer(
+      (_request, response) =>
+        json(response, 200, { results: [{ url: "https://example.com", format: "json", text: { type: "document", children: [] } }], errors: [] }),
+      () =>
+        Effect.gen(function* () {
+          const result = yield* fetchAndRemember({ urls: ["https://example.com"], format: "json" })
+          expect(result.corpus).toEqual([])
+          expect(corpus.puts).toHaveLength(0)
+        }),
+    ).pipe(Effect.provide(testLayer(store, corpus)))
+  })
+
+  it.effect("unified fetch stores tinyfish content exactly once", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    return withServer(
+      (_request, response) => json(response, 200, fetchPayload),
+      () =>
+        Effect.gen(function* () {
+          yield* unifiedFetch({ url: "https://example.com", providers: ["tinyfish"] })
+          expect(corpus.puts).toHaveLength(1)
+        }),
+    ).pipe(Effect.provide(testLayer(store, corpus)))
+  })
+
+  it.effect("agent check keeps COMPLETED results only, keyed by run id", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    return withServer(
+      (request, response) =>
+        request.pathname === "/v1/runs/run_ok"
+          ? json(response, 200, { run_id: "run_ok", status: "COMPLETED", goal: "list prices", result: { plans: ["pro"] } })
+          : json(response, 200, { run_id: "run_bad", status: "FAILED", goal: "g", result: null }),
+      () =>
+        Effect.gen(function* () {
+          const ok = yield* agentCheck({ run_id: "run_ok", tags: ["pricing"] })
+          expect(ok).toMatchObject({ corpus: { version: 1, created: true } })
+          expect(corpus.puts[0]).toEqual({
+            url: "tinyfish://agent/runs/run_ok",
+            content: JSON.stringify({ plans: ["pro"] }, null, 2),
+            title: "list prices",
+            provider: "tinyfish",
+            kind: "agent",
+            tags: ["pricing"],
+            metadata: { run_id: "run_ok", goal: "list prices" },
+          })
+
+          const optedOut = yield* agentCheck({ run_id: "run_ok", store: false })
+          expect("corpus" in optedOut).toBe(false)
+          const failed = yield* agentCheck({ run_id: "run_bad" })
+          expect("corpus" in failed).toBe(false)
+          expect(corpus.puts).toHaveLength(1)
+        }),
+    ).pipe(Effect.provide(testLayer(store, corpus)))
+  })
+
+  it.live("agent stream keeps the COMPLETE result with the target url and strips local fields", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    return withServer(
+      (_request, response) =>
+        sse(response, [
+          `data: ${JSON.stringify({ type: "STARTED", run_id: "run_s", timestamp: "t0" })}`,
+          `data: ${JSON.stringify({ type: "COMPLETE", run_id: "run_s", status: "COMPLETED", result: { email: "a@b.c" }, timestamp: "t1" })}`,
+        ]),
+      (requests) =>
+        Effect.gen(function* () {
+          const streamed = yield* agentStream({ url: "https://example.com", goal: "find email", tags: ["contact"], max_wait_seconds: 10 })
+          expect(requests[0]?.body).toEqual({ url: "https://example.com", goal: "find email" })
+          expect(streamed.corpus).toMatchObject({ created: true })
+          expect(corpus.puts[0]?.metadata).toEqual({ run_id: "run_s", goal: "find email", target_url: "https://example.com" })
+        }),
+    ).pipe(Effect.provide(testLayer(store, corpus)))
   })
 })
 

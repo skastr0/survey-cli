@@ -11,6 +11,12 @@ const OptionalNullableString = Schema.optional(Schema.NullishOr(Schema.String))
 const PositiveInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 const DomainList = Schema.Union([Schema.String, Schema.Array(Schema.String)])
 
+/** Local corpus controls (never sent to TinyFish). store:false opts out. */
+const CorpusFields = {
+  store: Schema.optional(Schema.Boolean),
+  tags: Schema.optional(Schema.Array(Schema.String)),
+}
+
 const WaitFields = {
   max_wait_seconds: Schema.optional(PositiveInt),
   poll_interval_seconds: Schema.optional(PositiveInt),
@@ -73,7 +79,7 @@ const SelectorList = Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 
   Schema.isLengthBetween(1, 20),
 )
 
-export const FetchInputSchema = Schema.Struct({
+const FetchFields = {
   urls: Schema.Array(NonEmptyString).check(Schema.isLengthBetween(1, 10)),
   purpose: Schema.optional(Schema.String.check(Schema.isLengthBetween(1, 2000))),
   format: Schema.optional(Schema.Literals(["markdown", "html", "json"])),
@@ -88,8 +94,13 @@ export const FetchInputSchema = Schema.Struct({
   include_etag_and_last_modified: Schema.optional(Schema.Boolean),
   include_selectors: Schema.optional(SelectorList),
   exclude_selectors: Schema.optional(SelectorList),
-})
+}
+
+export const FetchInputSchema = Schema.Struct(FetchFields)
 export type FetchInput = typeof FetchInputSchema.Type
+
+export const FetchCommandInputSchema = Schema.Struct({ ...FetchFields, ...CorpusFields })
+export type FetchCommandInput = typeof FetchCommandInputSchema.Type
 
 export const FetchResultSchema = Schema.StructWithRest(
   Schema.Struct({
@@ -217,12 +228,13 @@ const AgentRunFields = {
 export const AgentStartInputSchema = Schema.Struct(AgentRunFields)
 export type AgentStartInput = typeof AgentStartInputSchema.Type
 
-export const AgentRunInputSchema = Schema.Struct({ ...AgentRunFields, ...WaitFields })
+export const AgentRunInputSchema = Schema.Struct({ ...AgentRunFields, ...WaitFields, ...CorpusFields })
 export type AgentRunInput = typeof AgentRunInputSchema.Type
 
 export const AgentStreamInputSchema = Schema.Struct({
   ...AgentRunFields,
   max_wait_seconds: Schema.optional(PositiveInt),
+  ...CorpusFields,
 })
 export type AgentStreamInput = typeof AgentStreamInputSchema.Type
 
@@ -233,6 +245,9 @@ export const AgentRunIdInputSchema = Schema.Struct({
 })
 export type AgentRunIdInput = typeof AgentRunIdInputSchema.Type
 
+export const AgentCheckInputSchema = Schema.Struct({ ...AgentRunIdInputSchema.fields, ...CorpusFields })
+export type AgentCheckInput = typeof AgentCheckInputSchema.Type
+
 export const AgentRunRefInputSchema = Schema.Struct({
   run_id: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/)),
 })
@@ -241,6 +256,7 @@ export type AgentRunRefInput = typeof AgentRunRefInputSchema.Type
 export const AgentWaitInputSchema = Schema.Struct({
   run_id: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]+$/)),
   ...WaitFields,
+  ...CorpusFields,
 })
 export type AgentWaitInput = typeof AgentWaitInputSchema.Type
 
