@@ -14,6 +14,7 @@ import {
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
 import { monitorCommand } from "./capabilities/monitor"
+import { papersCommand } from "./capabilities/papers"
 import { researchCommand } from "./capabilities/research"
 import { runsCommand } from "./capabilities/runs"
 import { searchCommand } from "./capabilities/search"
@@ -45,6 +46,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     llamaCommand,
     searchCommand,
     fetchCommand,
+    papersCommand,
     extractCommand,
     researchCommand,
     verifyCommand,

@@ -6,14 +6,23 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { toErrorDetails } from "../core/output"
 import { canonicalizeUrl, Store } from "../core/store"
-import { loadProviderConfig, ProviderName } from "../core/registry"
+import { ProviderName } from "../core/registry"
+import { routeProviders, Tier, withTier } from "../core/tiers"
 import { exaApi } from "../providers/exa"
 import { parallelApi } from "../providers/parallel"
+import { Domain, wantsPapers } from "./academic"
+import { papers } from "./papers"
+
+const VERIFY_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel"]
 
 export const VerifyInput = Schema.Struct({
   claim: Schema.NonEmptyString,
   providers: Schema.optional(Schema.Array(ProviderName)),
   timeout_ms: Schema.optional(Schema.Int),
+  domain: Schema.optional(Domain),
+  tier: Schema.optional(Tier.annotate({
+    description: "free: skip keyed answer/task providers; rely on the keyless paper index. any (default).",
+  })),
 })
 export type VerifyInput = typeof VerifyInput.Type
 
@@ -22,8 +31,46 @@ interface Verdict {
   readonly ok: boolean
   readonly answer?: string
   readonly sources: ReadonlyArray<string>
+  readonly evidence?: unknown
   readonly error?: unknown
 }
+
+/** Paper-index evidence: top passages for the claim from the most relevant papers. */
+const papersVerdict = (input: VerifyInput): Effect.Effect<Verdict, unknown, AppEnv> =>
+  papers({
+    query: input.claim,
+    question: input.claim,
+    k: 5,
+    read_top: 3,
+    passages: 2,
+    ...(input.tier ? { tier: input.tier } : {}),
+  }).pipe(
+    Effect.map((result): Verdict => {
+      const evidence = result.papers.map((paper) => ({
+        primary_id: paper.primary_id,
+        title: paper.title,
+        url: paper.url,
+        passages: paper.passages ?? [],
+      }))
+      const answer = evidence
+        .flatMap((paper) =>
+          paper.passages.length > 0
+            ? paper.passages.map((passage) => `[${paper.primary_id}] ${passage.text.slice(0, 500)}`)
+            : paper.title
+              ? [`[${paper.primary_id}] ${paper.title}`]
+              : [],
+        )
+        .join("\n\n")
+      return {
+        provider: "papers",
+        ok: result.count > 0,
+        ...(answer.length > 0 ? { answer } : {}),
+        sources: result.papers.flatMap((paper) => (paper.url ? [canonicalizeUrl(paper.url)] : [])),
+        evidence: { source: result.source, papers: evidence },
+        ...(result.count === 0 ? { error: { type: "NoPapersFound", failures: result.failures } } : {}),
+      }
+    }),
+  )
 
 const exaVerdict = (claim: string): Effect.Effect<Verdict, unknown, AppEnv> =>
   Effect.gen(function* () {
@@ -79,18 +126,17 @@ const collectUrls = (value: unknown): Array<string> => {
 }
 
 export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
-  const requested = input.providers ?? (["exa", "parallel"] as const)
-  const eligible: Array<ProviderName> = []
-  const skipped: Array<{ provider: string; reason: string }> = []
-
-  for (const provider of requested) {
-    const config = yield* loadProviderConfig(provider)
-    if (config.credential === undefined) {
-      skipped.push({ provider, reason: "no API key configured" })
-    } else {
-      eligible.push(provider)
-    }
-  }
+  const { eligible: routed, skipped } = yield* routeProviders({
+    requested: input.providers ?? VERIFY_ADAPTERS,
+    adapters: VERIFY_ADAPTERS,
+    capability: (provider) => (provider === "exa" ? "answer" : "deep_research"),
+    tier: input.tier,
+  })
+  const academic = wantsPapers(input.domain, input.claim)
+  const eligible: Array<string> = [
+    ...routed.map(({ provider }) => provider),
+    ...(academic ? ["papers"] : []),
+  ]
 
   const verdicts = yield* Effect.forEach(
     eligible,
@@ -101,6 +147,9 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
         }
         if (provider === "parallel") {
           return yield* parallelVerdict(input.claim)
+        }
+        if (provider === "papers") {
+          return yield* papersVerdict(input)
         }
         return {
           provider,
@@ -119,7 +168,7 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
         ),
       ),
     { concurrency: "unbounded" },
-  )
+  ).pipe(withTier(input.tier))
 
   const allSources = verdicts.flatMap((v) => v.sources)
   const counts = new Map<string, number>()
@@ -146,6 +195,8 @@ export const verify = Effect.fn("verify")(function* (input: VerifyInput) {
     shared_sources: sharedSources,
     corroborated_providers: okVerdicts.length,
     confidence,
+    domain: academic ? "academic" : "web",
+    routing: routed.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
     skipped,
   }
 })
@@ -166,6 +217,17 @@ registerContract({
     {
       name: "fact check",
       input: { claim: "Bun 1.3 added support for compiling to bytecode" },
+    },
+    {
+      name: "academic claim against papers",
+      input: {
+        claim: "The original Transformer paper reports 28.4 BLEU on WMT 2014 English-to-German",
+        domain: "academic",
+      },
+    },
+    {
+      name: "free tier academic check",
+      input: { claim: "Diffusion models beat GANs on ImageNet image synthesis", domain: "academic", tier: "free" },
     },
   ],
 })

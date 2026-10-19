@@ -7,10 +7,16 @@ import { registerContract } from "../core/discovery"
 import { toErrorDetails } from "../core/output"
 import { recordRun, recordSources, updateRun, extractUrls } from "../core/runs"
 import { canonicalizeUrl, Store } from "../core/store"
-import { loadProviderConfig, ProviderName } from "../core/registry"
+import { ProviderName } from "../core/registry"
+import { routeProviders, Tier, withTier } from "../core/tiers"
 import { exaApi } from "../providers/exa"
 import { firecrawlApi } from "../providers/firecrawl"
 import { parallelApi } from "../providers/parallel"
+import { Domain, wantsPapers } from "./academic"
+import { papers as searchPapers } from "./papers"
+import { unifiedSearch } from "./search"
+
+const RESEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "firecrawl"]
 
 export const ResearchInput = Schema.Struct({
   query: Schema.NonEmptyString,
@@ -19,6 +25,11 @@ export const ResearchInput = Schema.Struct({
   wait: Schema.optional(Schema.Boolean),
   timeout_ms: Schema.optional(Schema.Int),
   output_schema: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  domain: Schema.optional(Domain),
+  tier: Schema.optional(Tier.annotate({
+    description:
+      "free: skip keyed deep-research agents; use keyless paper index and keyless web search instead. any (default).",
+  })),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -94,8 +105,6 @@ const startAndWait = (
   ) as Effect.Effect<ProviderResearchOutcome, never, AppEnv>
 
 export const research = Effect.fn("research")(function* (input: ResearchInput) {
-  const requested =
-    input.providers ?? (["exa", "parallel", "firecrawl"] as const)
   const timeoutMs = input.timeout_ms ?? (input.depth === "deep" ? 900_000 : 300_000)
   const wait = input.wait ?? true
 
@@ -106,20 +115,40 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
     payload: input,
   })
 
-  const eligible: Array<ProviderName> = []
-  const skipped: Array<{ provider: string; reason: string }> = []
-  for (const provider of requested) {
-    const config = yield* loadProviderConfig(provider)
-    if (config.credential === undefined) {
-      skipped.push({ provider, reason: "no API key configured" })
-    } else if (!["exa", "parallel", "firecrawl"].includes(provider)) {
-      skipped.push({ provider, reason: "provider has no deep-research adapter" })
-    } else {
-      eligible.push(provider)
-    }
-  }
+  const routed = yield* routeProviders({
+    requested: input.providers ?? RESEARCH_ADAPTERS,
+    adapters: RESEARCH_ADAPTERS,
+    capability: "deep_research",
+    tier: input.tier,
+  })
+  const eligible = routed.eligible.map(({ provider }) => provider)
+  const skipped = routed.skipped
 
-  const outcomes = yield* Effect.forEach(
+  // Keyless evidence lanes: the paper index for academic questions, and a
+  // keyless web search when no deep-research agent can run.
+  const academic = wantsPapers(input.domain, input.query)
+  const papersLane = academic
+    ? searchPapers({
+        query: input.query,
+        question: input.query,
+        k: input.depth === "deep" ? 20 : 10,
+        read_top: input.depth === "quick" ? 1 : 3,
+        ...(input.tier ? { tier: input.tier } : {}),
+      }).pipe(
+        Effect.map((result) => ({ ok: true as const, result })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error: toErrorDetails(error) })),
+      )
+    : Effect.succeed(undefined)
+  const webLane =
+    eligible.length === 0
+      ? unifiedSearch({ query: input.query, num_results: 10, ...(input.tier ? { tier: input.tier } : {}) }).pipe(
+          Effect.map((result) => ({ ok: true as const, result })),
+          Effect.catch((error) => Effect.succeed({ ok: false as const, error: toErrorDetails(error) })),
+        )
+      : Effect.succeed(undefined)
+
+  const [outcomes, papersOutcome, webOutcome] = yield* Effect.all([
+    Effect.forEach(
     eligible,
     (provider): Effect.Effect<ProviderResearchOutcome, never, AppEnv> => {
       const overrides = input[provider as "exa" | "parallel" | "firecrawl"] ?? {}
@@ -183,11 +212,35 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
       )
     },
     { concurrency: "unbounded" },
-  )
+    ).pipe(withTier(input.tier)),
+    papersLane,
+    webLane,
+  ], { concurrency: "unbounded" })
 
-  const allSources = outcomes.flatMap((o) => o.sources)
+  const laneOutcomes: Array<ProviderResearchOutcome> = []
+  if (papersOutcome?.ok && papersOutcome.result.count > 0) {
+    laneOutcomes.push({
+      provider: "papers",
+      ok: true,
+      output: papersOutcome.result,
+      sources: papersOutcome.result.papers.flatMap((paper) =>
+        paper.url ? [{ url: paper.url, title: paper.title ?? undefined }] : [],
+      ),
+    })
+  }
+  if (webOutcome?.ok && webOutcome.result.results.length > 0) {
+    laneOutcomes.push({
+      provider: "web",
+      ok: true,
+      output: webOutcome.result,
+      sources: webOutcome.result.results.map((r) => ({ url: r.url, title: r.title, snippet: r.snippet })),
+    })
+  }
+  const fused = [...outcomes, ...laneOutcomes]
+
+  const allSources = fused.flatMap((o) => o.sources)
   const sourceMap = new Map<string, { url: string; canonical_url: string; providers: Set<string>; title?: string }>()
-  for (const outcome of outcomes) {
+  for (const outcome of fused) {
     for (const source of outcome.sources) {
       const canonical = canonicalizeUrl(source.url)
       const existing = sourceMap.get(canonical)
@@ -218,7 +271,7 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
     yield* recordSources("survey", allSources, run.id)
   }
 
-  const succeeded = outcomes.filter((o) => o.ok)
+  const succeeded = fused.filter((o) => o.ok)
   yield* updateRun(run?.id, {
     status: succeeded.length > 0 ? "succeeded" : "failed",
   })
@@ -236,12 +289,16 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
     reports: Object.fromEntries(
       outcomes.filter((o) => o.ok).map((o) => [o.provider, o.output]),
     ),
+    routing: routed.eligible.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
+    domain: academic ? "academic" : "web",
+    papers: papersOutcome === undefined ? null : papersOutcome.ok ? papersOutcome.result : { error: papersOutcome.error },
+    web_search: webOutcome === undefined ? null : webOutcome.ok ? webOutcome.result : { error: webOutcome.error },
     sources,
     citation_intersection: {
       total_sources: sources.length,
       corroborated: sources.filter((s) => s.corroborated).length,
       providers_succeeded: succeeded.length,
-      providers_attempted: outcomes.length,
+      providers_attempted: fused.length,
     },
     skipped,
   }
@@ -250,7 +307,7 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
 export const researchCommand = makeJsonCommand({
   name: "research",
   commandName: "research",
-  description: "Composite deep-research: fan out to Exa/Parallel/Firecrawl agents, fuse sources, score citation intersection",
+  description: "Composite deep-research: fan out to Exa/Parallel/Firecrawl agents (plus the keyless paper index for academic queries), fuse sources, score citation intersection",
   schema: ResearchInput,
   run: (input) => research(input),
 })
@@ -267,6 +324,15 @@ registerContract({
     {
       name: "exa only",
       input: { query: "What is effect cluster?", providers: ["exa"], depth: "quick" },
+    },
+    {
+      name: "academic with paper index",
+      input: { query: "How do state space models compare to transformers on long-context benchmarks?", domain: "academic" },
+    },
+    {
+      name: "free tier",
+      description: "No account credits: keyless paper index plus keyless web search",
+      input: { query: "Evidence on intermittent fasting and longevity in clinical trials", tier: "free" },
     },
   ],
 })
