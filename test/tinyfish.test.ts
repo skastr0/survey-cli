@@ -13,6 +13,7 @@ import { research } from "../src/capabilities/research"
 import { unifiedSearch } from "../src/capabilities/search"
 import { Corpus, hashContent, type PutDocument } from "../src/core/corpus"
 import { getContract, listContracts } from "../src/core/discovery"
+import { toErrorDetails } from "../src/core/output"
 import { Store, type RunRecord, type SourceRecord } from "../src/core/store"
 import {
   agentCancel,
@@ -143,9 +144,7 @@ const makeCorpus = () => {
   const puts: Array<PutDocument> = []
   const docs = new Map<string, { id: number; version: number; hash: string }>()
   const fail = Effect.die("unused in tinyfish tests")
-  const layer = Layer.succeed(
-    Corpus,
-    Corpus.of({
+  const service = Corpus.of({
       put: (doc) =>
         Effect.sync(() => {
           puts.push(doc)
@@ -176,10 +175,12 @@ const makeCorpus = () => {
       scan: () => fail,
       remove: () => fail,
       stats: fail,
-    }),
-  )
-  return { layer, puts }
+    })
+  const layer = Layer.succeed(Corpus, service)
+  return { layer, puts, service }
 }
+
+const corpusService = (corpus: ReturnType<typeof makeCorpus>) => corpus.service
 
 const testLayer = (store: ReturnType<typeof makeStore>, corpus?: ReturnType<typeof makeCorpus>) =>
   Layer.mergeAll(
@@ -822,6 +823,8 @@ describe("tinyfish in unified commands", () => {
           expect(ok.content).toBe("# Example Domain")
 
           const failed = yield* Effect.flip(unifiedFetch({ url: "https://blocked.example", providers: ["tinyfish"] }))
+          // The CLI envelope must carry the message, not "[object Object]".
+          expect(toErrorDetails(failed).message).toBe("All fetch providers failed for https://blocked.example")
           const attempted = (failed as { body: { attempted: Array<{ provider: string; ok: boolean; error?: { message?: string } }> } }).body
             .attempted
           expect(attempted[0]).toMatchObject({ provider: "tinyfish", ok: false })
@@ -915,6 +918,42 @@ describe("tinyfish → corpus", () => {
           expect(corpus.puts).toHaveLength(1)
         }),
     ).pipe(Effect.provide(testLayer(store, corpus)))
+  })
+
+  it.effect("fetch cache hit missing a requested tag refetches so the tag is stored", () => {
+    const store = makeStore()
+    const corpus = makeCorpus()
+    const cachedDoc = {
+      id: 9,
+      url: "https://example.com",
+      canonical_url: "https://example.com",
+      domain: "example.com",
+      title: null,
+      provider: "tinyfish",
+      kind: "web",
+      content: "# cached",
+      content_hash: "h",
+      bytes: 8,
+      version: 1,
+      tags: ["docs"],
+      metadata: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      changed_at: new Date().toISOString(),
+    }
+    const withCache = Layer.succeed(Corpus, Corpus.of({ ...corpusService(corpus), get: () => Effect.succeed(cachedDoc) }))
+    return withServer(
+      (_request, response) => json(response, 200, fetchPayload),
+      (requests) =>
+        Effect.gen(function* () {
+          const hit = yield* unifiedFetch({ url: "https://example.com", providers: ["tinyfish"], max_age_ms: 60_000, tags: ["docs"] })
+          expect(hit.cached).toBe(true)
+          expect(requests).toHaveLength(0)
+          const miss = yield* unifiedFetch({ url: "https://example.com", providers: ["tinyfish"], max_age_ms: 60_000, tags: ["watch"] })
+          expect(miss.cached).toBe(false)
+          expect(corpus.puts[0]?.tags).toEqual(["watch"])
+        }),
+    ).pipe(Effect.provide(Layer.mergeAll(testLayer(store), withCache)))
   })
 
   it.effect("agent check keeps COMPLETED results only, keyed by run id", () => {
