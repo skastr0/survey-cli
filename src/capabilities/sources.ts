@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { makeJsonCommand } from "../core/command"
-import { registerContract } from "../core/discovery"
+import { registerContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
 import { canonicalizeUrl, Store } from "../core/store"
 
@@ -12,6 +12,8 @@ const ListSourcesInput = Schema.Struct({
   run_id: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.Int),
 })
+
+const ShowSourceInput = Schema.Struct({ url: Schema.NonEmptyString })
 
 const DedupeInput = Schema.Struct({
   min_providers: Schema.optional(Schema.Int),
@@ -80,7 +82,7 @@ export const sourcesShow = makeJsonCommand({
   name: "show",
   commandName: "sources show",
   description: "Show all ledger rows for one canonical URL",
-  schema: Schema.Struct({ url: Schema.NonEmptyString }),
+  schema: ShowSourceInput,
   run: (input) =>
     Effect.gen(function* () {
       const store = yield* Store
@@ -101,10 +103,26 @@ export const sourcesCommand = Command.make("sources").pipe(
   Command.withSubcommands([sourcesList, sourcesDedupe, sourcesShow]),
 )
 
-for (const [command, description] of [
-  ["sources list", "List sources in the ledger"],
-  ["sources dedupe", "Group sources by canonical URL"],
-  ["sources show", "Show ledger rows for a URL"],
-] as const) {
-  registerContract({ command, description })
-}
+registerContracts([
+  {
+    command: "sources list",
+    description: "List sources in the ledger",
+    inputSchema: ListSourcesInput,
+    examples: [
+      { name: "recent", input: { limit: 20 } },
+      { name: "one run", input: { run_id: "srv_..." } },
+    ],
+  },
+  {
+    command: "sources dedupe",
+    description: "Group sources by canonical URL with provider provenance",
+    inputSchema: DedupeInput,
+    examples: [{ name: "corroborated only", input: { min_providers: 2 } }],
+  },
+  {
+    command: "sources show",
+    description: "Show ledger rows for a URL",
+    inputSchema: ShowSourceInput,
+    examples: [{ name: "by url", input: { url: "https://effect.website" } }],
+  },
+])
