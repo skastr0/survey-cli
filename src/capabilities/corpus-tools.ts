@@ -583,7 +583,7 @@ export const corpusLinks = (input: typeof CorpusLinksInput.Type) =>
 export const corpusExportCommand = makeJsonCommand({
   name: "export",
   commandName: "corpus export",
-  description: "Write corpus documents to a portable file or directory: jsonl (re-importable), markdown, or a bundle",
+  description: "Write corpus documents to disk as jsonl (re-importable), one markdown file, or a bundle directory. Input: format, ids/filters, include_versions, path. Returns the written path, counts and bytes.",
   schema: CorpusExportInput,
   run: corpusExport,
 })
@@ -591,7 +591,7 @@ export const corpusExportCommand = makeJsonCommand({
 export const corpusImportCommand = makeJsonCommand({
   name: "import",
   commandName: "corpus import",
-  description: "Import a jsonl file written by `corpus export`; idempotent by url + content hash",
+  description: "Import a jsonl file from `corpus export` (path or inline content); idempotent by url + content hash, replays versions. Input: tags, dry_run. Returns created/updated/unchanged/failed per line.",
   schema: CorpusImportInput,
   run: corpusImport,
 })
@@ -599,7 +599,7 @@ export const corpusImportCommand = makeJsonCommand({
 export const corpusTagCommand = makeJsonCommand({
   name: "tag",
   commandName: "corpus tag",
-  description: "Add, remove or set tags on documents selected by id, url or filter",
+  description: "Add, remove or set tags on documents selected by ids, urls and/or filters, without touching content or versions. dry_run previews. Returns before/after tags per document.",
   schema: CorpusTagInput,
   run: corpusTag,
 })
@@ -607,7 +607,7 @@ export const corpusTagCommand = makeJsonCommand({
 export const corpusLinksCommand = makeJsonCommand({
   name: "links",
   commandName: "corpus links",
-  description: "Outbound http(s) links of a stored document, resolved and deduped, marked with what is already in the corpus",
+  description: "Outbound http(s) links in a stored document (id or url), resolved and deduped. Input: scope, new_only, include_images, limit. Returns links marked internal/in_corpus plus a plain urls list.",
   schema: CorpusLinksInput,
   run: corpusLinks,
 })
@@ -615,8 +615,8 @@ export const corpusLinksCommand = makeJsonCommand({
 export const corpusToolContracts = [
   {
     command: "corpus export",
-    description:
-      "Hand a corpus to another tool or seat. format jsonl writes one record per line (url, title, provider, kind, tags, metadata, content, hashes, timestamps; include_versions adds every stored version) and round-trips through `corpus import`; markdown writes one .md with an index and front-matter per document; bundle writes a directory with index.md and docs/<id>-<slug>.md. Filters: ids, kind, tag, provider, domain, since. Default location is the artifact directory; path overrides it. Returns the path.",
+    description: "Write corpus documents to disk as jsonl (re-importable), one markdown file, or a bundle directory. Input: format, ids/filters, include_versions, path. Returns the written path, counts and bytes.",
+    output: "{ format, path (null when nothing matched), index? (bundle), documents, bytes, files? (bundle), filters{ ids, kind, tag, provider, domain, since }, include_versions }",
     inputSchema: CorpusExportInput,
     examples: [
       { name: "everything as jsonl", input: {} },
@@ -627,8 +627,8 @@ export const corpusToolContracts = [
   },
   {
     command: "corpus import",
-    description:
-      "Import a jsonl file written by `corpus export` (path, or content inline). Idempotent: documents are keyed by url and compared by content hash, so re-importing reports unchanged. Versions in the file are replayed oldest-first, skipping ones the store already has. dry_run previews; tags adds tags to everything imported.",
+    description: "Import a jsonl file from `corpus export` (path or inline content); idempotent by url + content hash, replays versions. Input: tags, dry_run. Returns created/updated/unchanged/failed per line.",
+    output: "{ source, dry_run, lines, created, updated, unchanged, failed, results[{ line, url, status: created|updated|unchanged|would_create|would_update|failed, id?, version?, error? }] }",
     inputSchema: CorpusImportInput,
     examples: [
       { name: "import a handoff file", input: { path: "./handoff/corpus.jsonl" } },
@@ -637,8 +637,8 @@ export const corpusToolContracts = [
   },
   {
     command: "corpus tag",
-    description:
-      "Curate documents: add and/or remove tags, or set the whole tag set, on documents selected by ids, urls and/or a filter (union). Tag edits never change content, version or timestamps. dry_run previews; each document reports before/after.",
+    description: "Add, remove or set tags on documents selected by ids, urls and/or filters, without touching content or versions. dry_run previews. Returns before/after tags per document.",
+    output: "{ dry_run, matched, changed, failed, not_found[{ id } | { url }], documents[{ id, url, title, before[], after[], changed, error? }] }",
     inputSchema: CorpusTagInput,
     examples: [
       { name: "mark documents relevant", input: { ids: [1, 4], add: ["relevant"] } },
@@ -649,8 +649,8 @@ export const corpusToolContracts = [
   },
   {
     command: "corpus links",
-    description:
-      "Outbound http(s) links in a stored document's markdown (inline, reference, autolink, <a href>, bare URLs; code blocks ignored; relative links resolved against the document url; fragments stripped), deduped with occurrence counts. Each link says whether it is internal (same host) and already in the corpus; new_only keeps only unread links. `urls` is a plain list ready for `pipe` foreach.",
+    description: "Outbound http(s) links in a stored document (id or url), resolved and deduped. Input: scope, new_only, include_images, limit. Returns links marked internal/in_corpus plus a plain urls list.",
+    output: "{ id, url, version, count, total_found, known, truncated, urls[], links[{ url, text, kind, occurrences, internal, in_corpus, corpus_id? }] }",
     inputSchema: CorpusLinksInput,
     examples: [
       { name: "all links of a document", input: { id: 3 } },

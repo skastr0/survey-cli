@@ -558,8 +558,7 @@ export const corpusDiff = (input: typeof CorpusDiffInput.Type) =>
 const corpusAddCommand = makeBatchJsonCommand({
   name: "add",
   commandName: "corpus add",
-  description:
-    "Add documents to the local corpus: {url, content} stores inline text, {path} reads a local text file, {url} alone fetches via unified fetch. Re-adding the same URL versions it when content changes. Accepts one object or an array.",
+  description: "Store documents in the local corpus: {url, content} inline, {path} local file (binary docs converted), {url} fetched, {dir} a whole folder. Re-adding a URL versions it on change. Returns a batch summary.",
   schema: CorpusAddInput,
   run: (item) => corpusAdd(item),
 })
@@ -567,8 +566,7 @@ const corpusAddCommand = makeBatchJsonCommand({
 const corpusSearchCommand = makeJsonCommand({
   name: "search",
   commandName: "corpus search",
-  description:
-    "BM25 full-text search (SQLite FTS5) over every document in the local corpus, with highlighted snippets and the best-matching line numbers per hit (max_lines, default 3; feed them to corpus read). syntax=terms (default) quotes each term; syntax=fts passes raw FTS5 (NEAR, prefix*, column:).",
+  description: "BM25 full-text search over the local corpus. Input: query, limit, syntax (terms|fts), max_lines, filters. Returns ranked hits with snippet and best-matching line numbers to feed `corpus read`.",
   schema: CorpusSearchInput,
   run: corpusSearch,
 })
@@ -576,8 +574,7 @@ const corpusSearchCommand = makeJsonCommand({
 const corpusReadCommand = makeJsonCommand({
   name: "read",
   commandName: "corpus read",
-  description:
-    "Read a corpus document by id or url — whole, by char range (offset/length), or by line range (lines: \"40-120\"). version reads an older snapshot.",
+  description: "Read one corpus document by id or url: whole, by char range (offset/length) or line range (lines \"40-120\"); version reads an older snapshot. Returns the content slice plus document metadata.",
   schema: CorpusReadInput,
   run: corpusRead,
 })
@@ -585,8 +582,7 @@ const corpusReadCommand = makeJsonCommand({
 const corpusGrepCommand = makeJsonCommand({
   name: "grep",
   commandName: "corpus grep",
-  description:
-    "Line-level grep across corpus documents (literal by default, regex=true for JS regex) with optional context lines — code-search ergonomics over everything survey has read.",
+  description: "Line-level grep across corpus documents. Input: pattern, regex, ignore_case, context, ids or filters. Returns matching lines with document_id, url, line number and optional context.",
   schema: CorpusGrepInput,
   run: corpusGrep,
 })
@@ -594,7 +590,7 @@ const corpusGrepCommand = makeJsonCommand({
 const corpusListCommand = makeJsonCommand({
   name: "list",
   commandName: "corpus list",
-  description: "List corpus documents (metadata only, newest first) with provider/kind/domain/tag/since filters",
+  description: "List corpus documents newest first, metadata only. Input: limit, offset, provider/kind/domain/tag/since filters. Returns document summaries and a count.",
   schema: CorpusListInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -611,7 +607,7 @@ const corpusListCommand = makeJsonCommand({
 const corpusVersionsCommand = makeJsonCommand({
   name: "versions",
   commandName: "corpus versions",
-  description: "List stored content versions of one corpus document",
+  description: "List the stored content versions of one corpus document (id or url). Returns the document summary and each version's number, content_hash, bytes and fetched_at.",
   schema: CorpusRefInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -625,7 +621,7 @@ const corpusVersionsCommand = makeJsonCommand({
 const corpusDiffCommand = makeJsonCommand({
   name: "diff",
   commandName: "corpus diff",
-  description: "Line diff between two stored versions of a document (default: previous → latest) — DIY change monitoring",
+  description: "Line diff between two stored versions of a document (id or url; from/to default to previous -> latest; context). Returns changed plus added/removed counts and hunks.",
   schema: CorpusDiffInput,
   run: corpusDiff,
 })
@@ -633,7 +629,7 @@ const corpusDiffCommand = makeJsonCommand({
 const corpusRemoveCommand = makeBatchJsonCommand({
   name: "remove",
   commandName: "corpus remove",
-  description: "Remove documents (and their versions) from the corpus by id or url. Accepts one object or an array.",
+  description: "Delete documents and all their versions from the corpus by id or url; accepts one object or an array. Returns a batch summary with { id, url, removed } per item.",
   schema: CorpusRefInput,
   run: (item) =>
     Effect.gen(function* () {
@@ -647,7 +643,7 @@ const corpusRemoveCommand = makeBatchJsonCommand({
 const corpusPruneCommand = makeJsonCommand({
   name: "prune",
   commandName: "corpus prune",
-  description: "Remove documents whose file:// source is gone and/or that are older than a cutoff. dry_run defaults to true.",
+  description: "Remove stale documents: missing file:// sources and/or older_than a cutoff (30d, ISO date), scoped by kind/tag/provider/domain. dry_run defaults true. Returns counts and per-document reasons/status.",
   schema: CorpusPruneInput,
   run: corpusPrune,
 })
@@ -655,7 +651,7 @@ const corpusPruneCommand = makeJsonCommand({
 const corpusStatsCommand = makeJsonCommand({
   name: "stats",
   commandName: "corpus stats",
-  description: "Corpus totals by kind, provider, and domain",
+  description: "Corpus totals: document, version and byte counts, broken down by kind, provider and top 25 domains. Takes no input.",
   schema: Schema.Struct({}),
   optionalInput: true,
   run: () =>
@@ -691,7 +687,8 @@ registerContracts([
   ...corpusToolContracts,
   {
     command: "corpus add",
-    description: "Add/refresh documents in the local corpus (inline, local file, binary document via local convert, or fetched URL)",
+    description: "Store documents in the local corpus: {url, content} inline, {path} local file (binary docs converted), {url} fetched, {dir} a whole folder. Re-adding a URL versions it on change. Returns a batch summary.",
+    output: "{ outcome, total, success_count, error_count, concurrency, results[{ index, ok, data | error }] }; item data for url/path/content: { id, canonical_url, version, content_hash, created, changed, previous_hash, source: inline|path|fetch|convert, provider? (fetch), route? (convert) }; for dir: { dir, glob, recursive, dry_run, matched, processed, truncated, stored, updated, unchanged, skipped_unchanged, converted, needs_ocr, failed, results[{ path, relative, status, corpus?: { id, version }, route?, detail?, error? }] }",
     inputSchema: CorpusAddInput,
     batch: true,
     examples: [
@@ -712,7 +709,8 @@ registerContracts([
   },
   {
     command: "corpus search",
-    description: "BM25 full-text search over the local corpus",
+    description: "BM25 full-text search over the local corpus. Input: query, limit, syntax (terms|fts), max_lines, filters. Returns ranked hits with snippet and best-matching line numbers to feed `corpus read`.",
+    output: "{ query, hits[{ id, url, canonical_url, domain, title, provider, kind, content_hash, bytes, version, tags, metadata, created_at, updated_at, changed_at, score, snippet, lines?[{ line, text }] }], count }",
     inputSchema: CorpusSearchInput,
     examples: [
       { name: "terms", input: { query: "effect layer composition", limit: 5 } },
@@ -722,7 +720,8 @@ registerContracts([
   },
   {
     command: "corpus read",
-    description: "Read a corpus document by char or line range",
+    description: "Read one corpus document by id or url: whole, by char range (offset/length) or line range (lines \"40-120\"); version reads an older snapshot. Returns the content slice plus document metadata.",
+    output: "{ document{ id, url, canonical_url, domain, title, provider, kind, content_hash, bytes, version, tags, metadata, created_at, updated_at, changed_at }, version, total_lines, total_chars, lines?: { start, end } | range?: { offset, length }, content, truncated }",
     inputSchema: CorpusReadInput,
     examples: [
       { name: "line window", input: { id: 1, lines: "1-80" } },
@@ -731,7 +730,8 @@ registerContracts([
   },
   {
     command: "corpus grep",
-    description: "Line-level grep with context across corpus documents",
+    description: "Line-level grep across corpus documents. Input: pattern, regex, ignore_case, context, ids or filters. Returns matching lines with document_id, url, line number and optional context.",
+    output: "{ pattern, documents_scanned, documents_matched, matches[{ document_id, url, title, line, text, before?, after? }], count, truncated }",
     inputSchema: CorpusGrepInput,
     examples: [
       { name: "literal", input: { pattern: "rate limit", ignore_case: true, context: 1 } },
@@ -740,19 +740,22 @@ registerContracts([
   },
   {
     command: "corpus list",
-    description: "List corpus documents (metadata only)",
+    description: "List corpus documents newest first, metadata only. Input: limit, offset, provider/kind/domain/tag/since filters. Returns document summaries and a count.",
+    output: "{ documents[{ id, url, canonical_url, domain, title, provider, kind, content_hash, bytes, version, tags, metadata, created_at, updated_at, changed_at }], count }",
     inputSchema: CorpusListInput,
     examples: [{ name: "recent", input: { limit: 20 } }, { name: "papers", input: { kind: "paper" } }],
   },
   {
     command: "corpus versions",
-    description: "List stored versions of a document",
+    description: "List the stored content versions of one corpus document (id or url). Returns the document summary and each version's number, content_hash, bytes and fetched_at.",
+    output: "{ document{ id, url, canonical_url, domain, title, provider, kind, content_hash, bytes, version, tags, metadata, created_at, updated_at, changed_at }, versions[{ version, content_hash, bytes, fetched_at }] }",
     inputSchema: CorpusRefInput,
     examples: [{ name: "by id", input: { id: 1 } }],
   },
   {
     command: "corpus diff",
-    description: "Diff two versions of a document",
+    description: "Line diff between two stored versions of a document (id or url; from/to default to previous -> latest; context). Returns changed plus added/removed counts and hunks.",
+    output: "{ document{ id, url, canonical_url, domain, title, provider, kind, content_hash, bytes, version, tags, metadata, created_at, updated_at, changed_at }, from, to, changed, diff{ mode: lcs|set, added, removed, unchanged, hunks[{ old_start, new_start, lines[] }] } }",
     inputSchema: CorpusDiffInput,
     examples: [
       { name: "latest change", input: { url: "https://example.com/pricing" } },
@@ -761,15 +764,16 @@ registerContracts([
   },
   {
     command: "corpus remove",
-    description: "Remove documents from the corpus",
+    description: "Delete documents and all their versions from the corpus by id or url; accepts one object or an array. Returns a batch summary with { id, url, removed } per item.",
+    output: "{ outcome, total, success_count, error_count, concurrency, results[{ index, ok, data | error }] }; item data: { id, url, removed }",
     inputSchema: CorpusRefInput,
     batch: true,
     examples: [{ name: "by id", input: { id: 1 } }],
   },
   {
     command: "corpus prune",
-    description:
-      "Remove stale documents: file:// sources that no longer exist (missing_files, default on) and/or documents last updated before older_than (30d, 12h, 2w, or an ISO date), scoped by kind/tag/provider/domain. dry_run is true unless you pass false; max_remove caps one call. Returns per-document reasons and status.",
+    description: "Remove stale documents: missing file:// sources and/or older_than a cutoff (30d, ISO date), scoped by kind/tag/provider/domain. dry_run defaults true. Returns counts and per-document reasons/status.",
+    output: "{ dry_run, criteria{ missing_files, older_than, cutoff, kind, tag }, scanned, matched, truncated, removed, would_remove, failed, documents[{ id, url, title, kind, updated_at, reasons[missing_file|older_than], status: would_remove|removed|missing|failed, error? }] }",
     inputSchema: CorpusPruneInput,
     examples: [
       { name: "preview documents whose source file vanished", input: {} },
@@ -780,7 +784,8 @@ registerContracts([
   },
   {
     command: "corpus stats",
-    description: "Corpus totals",
+    description: "Corpus totals: document, version and byte counts, broken down by kind, provider and top 25 domains. Takes no input.",
+    output: "{ documents, versions, bytes, by_kind[{ kind, documents }], by_provider[{ provider, documents }], by_domain[{ domain, documents }] }",
     inputSchema: Schema.Struct({}),
     examples: [{ name: "stats", input: {} }],
   },

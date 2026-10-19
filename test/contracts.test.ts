@@ -36,45 +36,16 @@ describe("command contracts", () => {
     expect(failures).toEqual([])
   })
 
-  // Commands owned by other lanes that have not documented `output` yet. Remove
-  // an entry when its contract gains one (the test fails if a listed command
-  // already documents output, so this list can only shrink).
-  const OUTPUT_PENDING = new Set<string>([
-    "corpus add",
-    "corpus diff",
-    "corpus grep",
-    "corpus prune",
-    "corpus read",
-    "corpus search",
-    "corpus stats",
-    "corpus versions",
-    "corpus list",
-    "corpus remove",
-    "extract",
-    "fetch",
-    "research",
-    "search",
-    "verify",
-  ])
   const GENERIC_OUTPUT = /^(json|data|result|results|response|object|payload|the (provider|api) response|provider response|envelope)\.?$/i
 
   it("every contract documents a specific output shape", () => {
     const missing = contracts
-      .filter((contract) => !OUTPUT_PENDING.has(contract.command))
       .filter((contract) => {
         const output = contract.output?.trim() ?? ""
         return output.length < 20 || GENERIC_OUTPUT.test(output) || !/[{[]|\w+_\w+|\w+\(/.test(output)
       })
       .map((contract) => contract.command)
     expect(missing).toEqual([])
-  })
-
-  it("the pending-output list only names undocumented, registered commands", () => {
-    const registered = new Set(contracts.map((contract) => contract.command))
-    const stale = [...OUTPUT_PENDING].filter(
-      (command) => registered.has(command) && contracts.find((contract) => contract.command === command)?.output !== undefined,
-    )
-    expect(stale).toEqual([])
   })
 
   it("command paths are unique and MCP tool names do not collide", () => {
