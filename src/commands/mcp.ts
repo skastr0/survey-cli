@@ -34,14 +34,14 @@ const mcpServeCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Serve every survey command as an MCP tool over stdio (JSON-RPC). Optional {include, exclude} globs over command paths, e.g. {\"include\":[\"search\",\"fetch\",\"corpus *\"]}.",
+    "Serve every survey command as an MCP tool over stdio (JSON-RPC on stdout until stdin closes; `auth set` excluded by default). Input: optional {include?, exclude?, timeout_ms?}, e.g. {\"include\":[\"search\",\"fetch\",\"corpus *\"]}.",
   ),
 )
 
 const mcpToolsCommand = makeJsonCommand({
   name: "tools",
   commandName: "mcp tools",
-  description: "List the MCP tool definitions `mcp serve` would expose (same include/exclude filter)",
+  description: "List the MCP tool definitions `mcp serve` would expose. Input: optional {include?, exclude?} command-path globs. Returns {tools[{name, description, inputSchema, annotations, command}], count, default_excludes}",
   schema: McpFilterInput,
   optionalInput: true,
   run: (filter) =>
@@ -54,7 +54,7 @@ const mcpToolsCommand = makeJsonCommand({
 const mcpConfigCommand = makeJsonCommand({
   name: "config",
   commandName: "mcp config",
-  description: "Print the MCP client configuration snippet that mounts this survey binary (claude-code, codex, opencode, cursor, generic)",
+  description: "Print the client config that mounts this binary as an MCP server. Input: {client?: claude-code|codex|opencode|cursor|generic, include?, exclude?}. Returns the snippet to paste (shell line, JSON, or TOML)",
   schema: McpConfigInput,
   optionalInput: true,
   run: (input) =>
@@ -102,7 +102,8 @@ export const mcpCommand = Command.make("mcp").pipe(
 registerContracts([
   {
     command: "mcp tools",
-    description: "List MCP tool definitions",
+    description: "List the MCP tool definitions `mcp serve` would expose. Input: optional {include?, exclude?} command-path globs. Returns {tools, count, default_excludes}",
+    output: "{ tools[{ name, description, inputSchema, annotations, command }], count, default_excludes }",
     inputSchema: McpFilterInput,
     examples: [
       { name: "all", input: {} },
@@ -111,7 +112,8 @@ registerContracts([
   },
   {
     command: "mcp config",
-    description: "MCP client config snippet for this binary",
+    description: "Print the client config that mounts this binary as an MCP server. Input: {client?: claude-code|codex|opencode|cursor|generic, include?, exclude?}. Returns the snippet to paste",
+    output: "{ client, file?, shell?, json? | toml? }: claude-code adds a `claude mcp add` shell line; codex returns TOML; others a JSON mcpServers block",
     inputSchema: McpConfigInput,
     examples: [
       { name: "claude code", input: { client: "claude-code" } },
