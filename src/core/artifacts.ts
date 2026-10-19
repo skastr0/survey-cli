@@ -3,6 +3,7 @@ import { Effect, FileSystem, Path } from "effect"
 import { artifactDir } from "./paths"
 import { ArtifactWriteError } from "./errors"
 import { ARTIFACT_INLINE_THRESHOLD_BYTES } from "./constants"
+import { INLINE_OUTPUT_ENV } from "./exec"
 
 export type OutputPolicy = "inline" | "artifact" | "auto"
 
@@ -75,9 +76,10 @@ export const emitOutput = (options: {
   Effect.gen(function* () {
     const size = new TextEncoder().encode(options.contents).length
 
+    // Subprocesses of pipe/MCP set INLINE_OUTPUT_ENV so `auto` never swaps data for a pointer.
     const useArtifact =
       options.policy === "artifact" ||
-      (options.policy === "auto" && size > ARTIFACT_INLINE_THRESHOLD_BYTES)
+      (options.policy === "auto" && size > ARTIFACT_INLINE_THRESHOLD_BYTES && Bun.env[INLINE_OUTPUT_ENV] !== "1")
 
     if (!useArtifact) {
       return options.inlineData !== undefined

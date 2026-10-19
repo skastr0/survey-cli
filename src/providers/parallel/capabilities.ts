@@ -17,6 +17,7 @@ import {
   MonitorCreateInput,
   MonitorEventsInput,
   MonitorIdInput,
+  MonitorListInput,
   SearchInput,
 } from "./schemas"
 
@@ -283,8 +284,10 @@ registerContracts([
   },
   {
     command: "parallel monitors list",
-    description: "List Parallel monitors (GET /v1/monitors)",
+    description: "List Parallel monitors (GET /v1/monitors). Input optional.",
+    inputSchema: MonitorListInput,
     orbit: monitorOrbit,
+    examples: [{ name: "list monitors", input: {} }],
   },
   {
     command: "parallel monitors inspect",

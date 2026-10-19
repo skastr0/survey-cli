@@ -23,7 +23,7 @@ import {
   browserCreate,
   browserInspect,
   browserList,
-  fetchPages,
+  fetchAndRemember,
   monitorCreate,
   monitorDelete,
   monitorEventsUnsupported,
@@ -54,6 +54,7 @@ import {
 } from "./api"
 import {
   AgentListInputSchema,
+  AgentCheckInputSchema,
   AgentRunIdInputSchema,
   AgentRunInputSchema,
   AgentRunRefInputSchema,
@@ -64,7 +65,7 @@ import {
   BrowserListInputSchema,
   BrowserSessionIdInputSchema,
   EmptyInputSchema,
-  FetchInputSchema,
+  FetchCommandInputSchema,
   MonitorCreateInputSchema,
   MonitorIdInputSchema,
   MonitorUpdateInputSchema,
@@ -116,8 +117,8 @@ export const fetchCommand = makeBatchJsonCommand({
   name: "fetch",
   commandName: "tinyfish fetch",
   description: "Fetch 1-10 URLs as markdown/html/json (POST api.fetch.tinyfish.ai). One object or an ordered local array.",
-  schema: FetchInputSchema,
-  run: (input) => fetchPages(input),
+  schema: FetchCommandInputSchema,
+  run: (input) => fetchAndRemember(input),
 })
 
 export const usageCommand = makeJsonCommand({
@@ -202,7 +203,7 @@ export const agentCommand = Command.make("agent").pipe(
       name: "check",
       commandName: "tinyfish agent check",
       description: "Get a run's status and result; records terminal state in the run registry",
-      schema: AgentRunIdInputSchema,
+      schema: AgentCheckInputSchema,
       run: agentCheck,
     }),
     makeJsonCommand({

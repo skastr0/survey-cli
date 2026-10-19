@@ -301,6 +301,9 @@ export const MonitorIdInput = Schema.Struct({
 })
 export type MonitorIdInput = typeof MonitorIdInput.Type
 
+/** GET /v1/monitors takes no parameters; the payload is optional and must be `{}`. */
+export const MonitorListInput = Schema.Struct({})
+
 // ---- Response schemas ----
 
 export const SearchResponse = Schema.Struct({

@@ -129,9 +129,17 @@ export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>;
   const byName = new Map(options.tools.map((tool) => [tool.name, tool]))
   const listed = options.tools.map(({ argv: _argv, ...tool }) => tool)
 
-  return async (message: JsonRpcRequest): Promise<unknown | undefined> => {
+  return async (raw: unknown): Promise<unknown | undefined> => {
+    // JSON-RPC 2.0: non-objects (incl. batches, unsupported since MCP 2025-06-18) are invalid requests.
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return rpcError(null, -32600, "Invalid Request")
+    }
+    const message = raw as Partial<JsonRpcRequest>
+    // A message without a method is a response to us; we never send requests, so ignore it.
+    if (typeof message.method !== "string") return undefined
     const { id, method, params } = message
-    const isNotification = id === undefined
+    // Notifications never get a reply, and none of ours has a side effect worth running.
+    if (id === undefined) return undefined
     switch (method) {
       case "initialize": {
         const requested = typeof params?.protocolVersion === "string" ? params.protocolVersion : undefined
@@ -151,7 +159,7 @@ export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>;
         }
       }
       case "ping":
-        return isNotification ? undefined : { jsonrpc: "2.0", id, result: {} }
+        return { jsonrpc: "2.0", id, result: {} }
       case "tools/list":
         return { jsonrpc: "2.0", id, result: { tools: listed } }
       case "tools/call": {
@@ -175,7 +183,6 @@ export const createHandler = (options: { readonly tools: ReadonlyArray<McpTool>;
         }
       }
       default:
-        if (isNotification || method.startsWith("notifications/")) return undefined
         return rpcError(id, -32601, `Method not found: ${method}`)
     }
   }
@@ -192,9 +199,9 @@ export const serveStdio = (options: { readonly tools: ReadonlyArray<McpTool>; re
     }
     reader.on("line", (line) => {
       if (line.trim().length === 0) return
-      let message: JsonRpcRequest
+      let message: unknown
       try {
-        message = JSON.parse(line) as JsonRpcRequest
+        message = JSON.parse(line)
       } catch {
         write(rpcError(null, -32700, "Parse error"))
         return
@@ -202,6 +209,10 @@ export const serveStdio = (options: { readonly tools: ReadonlyArray<McpTool>; re
       const task = handle(message)
         .then((response) => {
           if (response !== undefined) write(response)
+        })
+        .catch((error: unknown) => {
+          const id = (message as { id?: JsonRpcRequest["id"] }).id
+          if (id !== undefined) write(rpcError(id, -32603, error instanceof Error ? error.message : String(error)))
         })
         .finally(() => pending.delete(task))
       pending.add(task)

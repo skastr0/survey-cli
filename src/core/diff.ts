@@ -19,8 +19,9 @@ export interface LineDiff {
 const MAX_CELLS = 4_000_000
 
 export const diffLines = (before: string, after: string, context = 2): LineDiff => {
-  const a = before.split("\n")
-  const b = after.split("\n")
+  // "" has zero lines, not one empty line.
+  const a = before.length === 0 ? [] : before.split("\n")
+  const b = after.length === 0 ? [] : after.split("\n")
 
   // Trim common prefix/suffix so the LCS table only covers the changed core.
   let start = 0

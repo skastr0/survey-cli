@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url"
+
 import { Effect, FileSystem, Path, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 
@@ -184,7 +186,8 @@ export const corpusAdd = (input: typeof CorpusAddInput.Type) =>
           ),
         ))
       const result = yield* corpus.put({
-        url: input.url ?? `file://${absolute}`,
+        // pathToFileURL percent-encodes `#`/`?` so canonicalization cannot strip them.
+        url: input.url ?? pathToFileURL(absolute).href,
         content,
         title: input.title ?? path.basename(absolute),
         provider: input.provider ?? "local",

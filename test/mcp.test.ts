@@ -8,7 +8,7 @@ import "../src/commands/auth"
 import { stripNullBranches } from "../src/core/discovery"
 import { buildTools, createHandler, type Executor, toolName } from "../src/mcp/server"
 
-const calls: Array<{ argv: ReadonlyArray<string>; input: string }> = []
+const calls: Array<{ argv: ReadonlyArray<string>; input: string | undefined }> = []
 const fakeExec: Executor = async (argv, input) => {
   calls.push({ argv, input })
   if (argv.join(" ") === "corpus read") {
@@ -18,7 +18,7 @@ const fakeExec: Executor = async (argv, input) => {
       stderr: JSON.stringify({ ok: false, command: "corpus read", error: { type: "CommandInputError", message: "nope" } }),
     }
   }
-  return { exitCode: 0, stdout: JSON.stringify({ ok: true, command: argv.join(" "), data: { echo: JSON.parse(input) } }), stderr: "" }
+  return { exitCode: 0, stdout: JSON.stringify({ ok: true, command: argv.join(" "), data: { echo: JSON.parse(input ?? "{}") } }), stderr: "" }
 }
 
 describe("buildTools", () => {
@@ -111,5 +111,21 @@ describe("MCP handler", () => {
     })
     expect(await handle({ jsonrpc: "2.0", id: 7, method: "resources/list" })).toMatchObject({ error: { code: -32601 } })
     expect(await handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeUndefined()
+  })
+
+  it("never answers or executes notifications", async () => {
+    const before = calls.length
+    expect(await handle({ jsonrpc: "2.0", method: "tools/list" })).toBeUndefined()
+    expect(await handle({ jsonrpc: "2.0", method: "initialize", params: {} })).toBeUndefined()
+    expect(
+      await handle({ jsonrpc: "2.0", method: "tools/call", params: { name: "corpus_stats", arguments: {} } }),
+    ).toBeUndefined()
+    expect(calls.length).toBe(before)
+  })
+
+  it("rejects non-object messages and ignores responses", async () => {
+    expect(await handle(null)).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
+    expect(await handle([{ jsonrpc: "2.0", id: 1, method: "ping" }])).toMatchObject({ error: { code: -32600 } })
+    expect(await handle({ jsonrpc: "2.0", id: 1, result: {} })).toBeUndefined()
   })
 })

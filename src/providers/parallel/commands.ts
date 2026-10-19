@@ -8,6 +8,7 @@ import {
   jsonInputArg,
   makeBatchJsonCommand,
   makeJsonCommand,
+  optionalJsonInputArg,
   outputFlag,
 } from "../../core/command"
 import { loadJsonInput } from "../../core/json"
@@ -59,6 +60,7 @@ import {
   MonitorCreateInput,
   MonitorEventsInput,
   MonitorIdInput,
+  MonitorListInput,
   SearchInput,
   type FindAllRun,
   type TaskRun,
@@ -849,10 +851,11 @@ const monitorCreate = Command.make(
     ),
 ).pipe(Command.withDescription("Create one or more Parallel monitors"))
 
-const monitorList = Command.make("list", { output: outputFlag }, ({ output }) =>
+const monitorList = Command.make("list", { input: optionalJsonInputArg, output: outputFlag }, ({ input, output }) =>
   executeJsonCommand(
     "parallel monitors list",
-    listMonitors.pipe(
+    loadJsonInput(MonitorListInput, Option.getOrElse(input, () => "{}")).pipe(
+      Effect.andThen(listMonitors),
       Effect.flatMap(applyPolicy("parallel monitors list", output)),
     ),
   ),

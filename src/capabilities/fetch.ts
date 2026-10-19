@@ -5,7 +5,7 @@ import type { AppEnv } from "../core/env"
 import { makeJsonCommand } from "../core/command"
 import { recallDocument, rememberDocument } from "../core/corpus"
 import { registerContract } from "../core/discovery"
-import { ApiResponseError } from "../core/errors"
+import { ApiResponseError, ProviderUnsupportedError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { ProviderName } from "../core/registry"
@@ -134,8 +134,7 @@ const tryProvider = (
       const payload = yield* parallelApi.extract({ urls: [input.url], ...overrides } as never)
       return { payload, ...extractContent(payload) }
     }
-    return yield* Effect.fail({
-      _tag: "ProviderUnsupportedError" as const,
+    return yield* new ProviderUnsupportedError({
       provider,
       capability: "fetch",
       message: `${provider} does not support unified fetch`,
@@ -155,7 +154,9 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 
   if (input.max_age_ms !== undefined) {
     const cached = yield* recallDocument(input.url, input.max_age_ms)
-    if (cached !== undefined) {
+    // Serving from cache cannot add tags, so a hit missing a requested tag refetches and re-stores.
+    const hasTags = (input.tags ?? []).every((tag) => cached?.doc.tags.includes(tag))
+    if (cached !== undefined && (input.store === false || hasTags)) {
       return {
         url: input.url,
         provider: cached.doc.provider ?? "corpus",
@@ -224,8 +225,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
     })
   }
 
-  return yield* Effect.fail({
-    _tag: "ApiResponseError" as const,
+  return yield* new ApiResponseError({
     provider: order.join(","),
     method: "GET",
     path: input.url,
