@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const require = createRequire(import.meta.url)
 const platformKey = `${process.platform}-${process.arch}`
@@ -38,8 +39,11 @@ if (!existsSync(binaryPath)) {
   process.exit(1)
 }
 
+// npm may hoist the platform package away from this wrapper's node_modules,
+// where the optional @firecrawl/* local tools live; tell the binary where we are.
 const result = spawnSync(binaryPath, process.argv.slice(2), {
   stdio: "inherit",
+  env: { ...process.env, SURVEY_NPM_PACKAGE_DIR: join(dirname(fileURLToPath(import.meta.url)), "..") },
 })
 
 if (result.error) {
