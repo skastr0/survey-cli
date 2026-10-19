@@ -9,7 +9,7 @@ import {
   outputFlag,
 } from "../core/command"
 import { CommandInputError } from "../core/errors"
-import { loadJsonInput } from "../core/json"
+import { decodeJsonValue, loadJsonInput } from "../core/json"
 import { executeJsonCommand, setExitCode, toErrorDetails } from "../core/output"
 
 /**
@@ -38,9 +38,7 @@ export const makeOneOrManyCommand = <S extends Schema.Constraint, E, R>(options:
           }
           const raw = yield* loadJsonInput(Schema.Unknown, input)
           if (!Array.isArray(raw)) {
-            const item = yield* decodeBatchItem(options.schema, raw, 0).pipe(
-              Effect.mapError((error) => error),
-            )
+            const item = yield* decodeJsonValue(options.schema, raw, "inline")
             return yield* options.run(item)
           }
           const results = yield* Effect.forEach(
