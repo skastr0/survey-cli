@@ -16,6 +16,7 @@ import { corpusCommand } from "./capabilities/corpus"
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
 import { monitorCommand } from "./capabilities/monitor"
+import { pipeCommand } from "./capabilities/pipe"
 import { researchCommand } from "./capabilities/research"
 import { runsCommand } from "./capabilities/runs"
 import { searchCommand } from "./capabilities/search"
@@ -57,6 +58,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     sqlCommand,
     corpusCommand,
     mcpCommand,
+    pipeCommand,
   ]),
 )
 

@@ -2,6 +2,9 @@ import { createInterface } from "node:readline"
 
 import { CLI_NAME, CLI_VERSION } from "../core/constants"
 import { type CommandContract, contractJsonSchema, listContracts } from "../core/discovery"
+import { envelopeOf, type Executor, spawnExecutor } from "../core/exec"
+
+export { type Executor, selfCommand, spawnExecutor } from "../core/exec"
 
 /**
  * MCP (Model Context Protocol) stdio server. Every registered command
@@ -98,70 +101,13 @@ export const buildTools = (filter: ToolFilter = {}): ReadonlyArray<McpTool> => {
     }))
 }
 
-export interface ExecResult {
-  readonly exitCode: number
-  readonly stdout: string
-  readonly stderr: string
-}
-
-export type Executor = (argv: ReadonlyArray<string>, input: string) => Promise<ExecResult>
-
-/** How to re-invoke this CLI: compiled binary → execPath; `bun run cli.ts` → execPath + script. */
-export const selfCommand = (): ReadonlyArray<string> => {
-  const script = process.argv[1]
-  if (script === undefined || script.startsWith("/$bunfs") || script.startsWith("B:/~BUN") || script === process.execPath) {
-    return [process.execPath]
-  }
-  return [process.execPath, script]
-}
-
-export const spawnExecutor: Executor = async (argv, input) => {
-  const proc = Bun.spawn([...selfCommand(), ...argv, "-"], {
-    stdin: new Blob([input]),
-    stdout: "pipe",
-    stderr: "pipe",
-    env: process.env,
-  })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  return { exitCode, stdout, stderr }
-}
-
-const parseEnvelope = (text: string): unknown => {
-  const trimmed = text.trim()
-  if (trimmed.length === 0) return undefined
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    // Some commands stream NDJSON; keep the last complete envelope.
-    const lines = trimmed.split("\n").filter((line) => line.trim().length > 0)
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      try {
-        return JSON.parse(lines[index]!)
-      } catch {
-        continue
-      }
-    }
-    return { raw: trimmed }
-  }
-}
-
 export const callTool = async (tool: McpTool, args: unknown, exec: Executor) => {
   const payload = JSON.stringify(args ?? {})
-  const result = await exec(tool.argv, payload)
-  const success = parseEnvelope(result.stdout)
-  const failure = parseEnvelope(result.stderr)
-  const envelope =
-    (success as { ok?: boolean } | undefined)?.ok === true
-      ? success
-      : (failure ?? success ?? { ok: false, error: { type: "ExecError", message: `exit ${result.exitCode}` } })
-  const isError = (envelope as { ok?: boolean }).ok !== true
+  const envelope = envelopeOf(await exec(tool.argv, payload))
+  const isError = !envelope.ok
   return {
     content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
-    structuredContent: envelope as Record<string, unknown>,
+    structuredContent: envelope as unknown as Record<string, unknown>,
     isError,
   }
 }
