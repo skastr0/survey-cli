@@ -542,7 +542,7 @@ describe("parallel keyless MCP", () => {
       async () => {
         const result = await run(parallelApi.search({ objective: "fts5", max_results: 3 }))
         expect(result.results.map((r) => r.url)).toEqual(["https://example.com/0", "https://example.com/1", "https://example.com/2"])
-        expect(result.ignored_options).not.toContain("max_results")
+        expect((result as { ignored_options?: Array<string> }).ignored_options).not.toContain("max_results")
       },
     )
   })
@@ -695,6 +695,38 @@ describe("unified keyless routing", () => {
         expect(result.source).toBe("none")
         expect(result.count).toBe(0)
         expect(seen.length).toBe(1)
+      },
+    )
+  })
+
+  it("verify keeps Exa citation URLs as sources and asks Parallel base for a text schema", async () => {
+    await withStub(
+      {
+        // Shapes of live POST /answer and GET /v1/tasks/runs/{id}/result (2026-10-19), trimmed.
+        "/exa/answer": () => ({
+          body: {
+            requestId: "req_redacted",
+            answer: "Yes, Bun 1.1 added native Windows support [1].",
+            citations: [{ id: "https://bun.com/blog/bun-v1.1", title: "Bun 1.1 | Bun Blog", url: "https://bun.com/blog/bun-v1.1", publishedDate: "2024-04-01T16:00:00.000Z" }],
+            costDollars: { total: 0.005 },
+          },
+        }),
+        "/parallel/v1/tasks/runs": (seen) =>
+          seen.method === "POST"
+            ? { body: { run_id: "run_v", status: "completed", is_active: false, processor: "base", created_at: "2026-10-19T00:00:00Z" } }
+            : seen.pathname.endsWith("/result")
+              ? { body: { run: { run_id: "run_v", status: "completed", is_active: false, processor: "base" }, output: { type: "text", content: "Verified.", basis: [{ field: "output", reasoning: "Release notes say so.", confidence: "high", citations: [{ url: "https://bun.com/blog/bun-v1.1", title: "Bun 1.1 | Bun Blog", excerpts: ["You can now run Bun on Windows 10 and later!"] }] }] } } }
+              : { body: { run_id: "run_v", status: "completed", is_active: false, processor: "base", created_at: "2026-10-19T00:00:00Z" } },
+      },
+      { EXA_API_KEY: "exa-key", PARALLEL_API_KEY: "par-key" },
+      async (seen) => {
+        const result = await run(verify({ claim: "Bun 1.1 added native Windows support", providers: ["exa", "parallel"] }))
+        expect(result.verdicts.find((v) => v.provider === "exa")).toMatchObject({ ok: true, sources: ["https://bun.com/blog/bun-v1.1"] })
+        expect(result.verdicts.find((v) => v.provider === "parallel")).toMatchObject({ ok: true, answer: "Verified." })
+        const answerBody = seen.find((s) => s.pathname === "/exa/answer")?.body as Record<string, unknown>
+        expect(answerBody.text).toBeUndefined()
+        const taskBody = seen.find((s) => s.method === "POST" && s.pathname === "/parallel/v1/tasks/runs")?.body
+        expect(taskBody).toMatchObject({ processor: "base", task_spec: { output_schema: { type: "text" } } })
       },
     )
   })
