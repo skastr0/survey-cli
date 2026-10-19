@@ -111,6 +111,35 @@ export class McpError extends Schema.TaggedError<McpError>()(
   },
 ) {}
 
+export class LocalToolUnavailableError extends Schema.TaggedError<LocalToolUnavailableError>()(
+  "LocalToolUnavailableError",
+  {
+    tool: Schema.String,
+    operation: Schema.String,
+    attempts: Schema.Array(
+      Schema.Struct({
+        mode: Schema.String,
+        detail: Schema.String,
+      }),
+    ),
+    install_hint: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class LocalToolError extends Schema.TaggedError<LocalToolError>()(
+  "LocalToolError",
+  {
+    tool: Schema.String,
+    operation: Schema.String,
+    mode: Schema.String,
+    code: Schema.NullishOr(Schema.String),
+    pages: Schema.NullishOr(Schema.Array(Schema.Number)),
+    page_count: Schema.NullishOr(Schema.Number),
+    message: Schema.String,
+  },
+) {}
+
 export type AppError =
   | ConfigurationError
   | MissingApiKeyError
@@ -124,3 +153,5 @@ export type AppError =
   | ProviderUnsupportedError
   | StoreError
   | McpError
+  | LocalToolUnavailableError
+  | LocalToolError

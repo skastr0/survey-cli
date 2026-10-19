@@ -201,6 +201,41 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
           },
         }
       }
+      case "LocalToolUnavailableError": {
+        return {
+          type: error._tag,
+          message: error.message,
+          details: {
+            tool: error.tool as string,
+            operation: error.operation as string,
+            attempts: error.attempts,
+            install_hint: error.install_hint as string,
+            next_step: error.install_hint as string,
+            retryable: false,
+          },
+        }
+      }
+      case "LocalToolError": {
+        return {
+          type: error._tag,
+          message: error.message,
+          details: {
+            tool: error.tool as string,
+            operation: error.operation as string,
+            mode: error.mode as string,
+            code: error.code ?? null,
+            ...(error.pages ? { pages: error.pages } : {}),
+            ...(error.page_count !== undefined && error.page_count !== null
+              ? { page_count: error.page_count }
+              : {}),
+            hint:
+              error.code === "needsOcr"
+                ? "The PDF has scanned or image-only pages. Use `survey convert` with a LlamaCloud key for the OCR fallback."
+                : "The local tool rejected this document; inspect the code and message.",
+            retryable: false,
+          },
+        }
+      }
       case "McpError": {
         return {
           type: error._tag,
