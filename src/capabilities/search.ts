@@ -189,14 +189,18 @@ export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
 export const searchCommand = makeJsonCommand({
   name: "search",
   commandName: "search",
-  description: "Fan out a web search across Exa, Parallel, Keenable, Firecrawl, and TinyFish; dedupe by canonical URL with provider provenance",
+  description:
+    "Fan out a web query to Exa, Parallel, Keenable, Firecrawl and TinyFish; fuse by canonical URL with RRF. Input: query, num_results, providers, tier, read_top (fetch top n into corpus). Returns ranked results with provenance.",
   schema: UnifiedSearchInput,
   run: (input) => unifiedSearch(input),
 })
 
 registerContract({
   command: "search",
-  description: "Unified cross-provider web search (Exa, Parallel, Keenable, Firecrawl, TinyFish) with dedupe and provenance",
+  description:
+    "Fan out a web query to Exa, Parallel, Keenable, Firecrawl and TinyFish; fuse by canonical URL with RRF. Input: query, num_results, providers, tier, read_top (fetch top n into corpus). Returns ranked results with provenance.",
+  output:
+    "{ query, results: [{ url, canonical_url, title?, snippet?, score?, published_at?, providers[], ranks{provider: 1-based rank}, fusion_score (RRF, sorted desc), read?: { provider, cached, chars }, corpus?: { id, version, changed }, read_error? }], providers_used[], routing: [{ provider, mode, cost }], failures: [{ provider, error }], skipped: [{ provider, reason }], dedupe: { before, after, corroborated } }. read/corpus/read_error appear only on the top read_top rows.",
   inputSchema: UnifiedSearchInput,
   examples: [
     {

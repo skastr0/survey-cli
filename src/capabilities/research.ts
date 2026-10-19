@@ -818,7 +818,8 @@ export const researchInspect = Effect.fn("researchInspect")(function* (input: ty
 const researchStartCommand = makeJsonCommand({
   name: "start",
   commandName: "research start",
-  description: "Start every jury member and return a research_id immediately; follow with research check|wait",
+  description:
+    "Start every research jury member and return a research_id at once; follow with research check or wait. Same input as research. Returns research_id, member runs and the next command.",
   schema: ResearchInput,
   run: (input) => researchStart(input),
 })
@@ -826,7 +827,8 @@ const researchStartCommand = makeJsonCommand({
 const researchCheckCommand = makeJsonCommand({
   name: "check",
   commandName: "research check",
-  description: "Poll each jury member once; when all are terminal, fuse citations and store the final report",
+  description:
+    "Poll each member of a started research once; when all are terminal, fuse sources and store the report. Input: id (research_id). Returns complete, pending members, or the final result.",
   schema: ResearchIdInput,
   run: (input) => researchCheck(input),
 })
@@ -834,7 +836,8 @@ const researchCheckCommand = makeJsonCommand({
 const researchWaitCommand = makeJsonCommand({
   name: "wait",
   commandName: "research wait",
-  description: "Poll research check until the research completes or timeout_ms passes",
+  description:
+    "Repeat research check until the research completes. Input: id, interval_ms (default 5000), timeout_ms (default 900000). Returns the completed check plus waited_ms; JobWaitTimeoutError on timeout.",
   schema: ResearchWaitInput,
   run: (input) => researchWait(input),
 })
@@ -842,7 +845,8 @@ const researchWaitCommand = makeJsonCommand({
 const researchInspectCommand = makeJsonCommand({
   name: "inspect",
   commandName: "research inspect",
-  description: "Show the recorded research run, its member runs and the stored result without calling providers",
+  description:
+    "Show a recorded research run locally, without calling providers. Input: id (research_id). Returns run status, member runs, routing, result_ref and the stored result.",
   schema: ResearchIdInput,
   run: (input) => researchInspect(input),
 })
@@ -852,7 +856,7 @@ export const researchCommand = makeJsonCommand({
   name: "research",
   commandName: "research",
   description:
-    "Composite deep-research: fan out to Exa/Parallel/Firecrawl agents and TinyFish Research (plus the keyless paper index for academic queries), fuse sources, score citation intersection",
+    "Blocking deep research: run Exa, Parallel, Firecrawl and TinyFish agents (plus paper index / keyless search lanes) and fuse their sources. Input: query, depth, providers, domain, tier, output_schema. Returns per-provider reports and fused sources.",
   schema: ResearchInput,
   run: (input) => research(input),
 }).pipe(
@@ -865,7 +869,9 @@ registerContracts([
 {
   command: "research",
   description:
-    "Cross-provider composite deep research (blocking). Sources carry independent_group; citation_intersection reports citations vs independent_sources (same page, registrable domain or syndicated title count once).",
+    "Blocking deep research: run Exa, Parallel, Firecrawl and TinyFish agents (plus paper index / keyless search lanes) and fuse their sources. Input: query, depth, providers, domain, tier, output_schema. Returns per-provider reports and fused sources.",
+  output:
+    "{ run_id, query, providers: [{ provider, ok, remote_id, source_count, error? }], reports {provider: native answer}, routing: [{ provider, mode, cost }], domain (web | academic), papers (paper-index result | {error} | null), web_search (unified search result | {error} | null), sources: [{ url, canonical_url, title?, providers[], corroborated, independent_group }], source_groups[], citation_intersection: { total_sources, corroborated, citations, independent_sources, independent_corroborated, providers_succeeded, providers_attempted }, skipped[], corpus?: { id, version, changed, created, url (survey://research/<run id>) } }.",
   inputSchema: ResearchInput,
   orbit: ["research start", "research check", "research wait", "research inspect"],
   examples: [
@@ -904,7 +910,9 @@ registerContracts([
 {
   command: "research start",
   description:
-    "Non-blocking research: start each jury member, record member runs, return research_id at once. Same input as research; timeout_ms bounds how long members may run before check reports them timed_out.",
+    "Start every research jury member and return a research_id at once; follow with research check or wait. Same input as research. Returns research_id, member runs and the next command.",
+  output:
+    "{ research_id, status: \"running\", query, timeout_ms, members: [{ provider, run_id, remote_id, status, error? }], routing: [{ provider, mode, cost }], skipped[], next (the research check command line) }.",
   inputSchema: ResearchInput,
   examples: [
     { name: "start deep research", input: { query: "State of WASI preview 2 adoption", depth: "deep" } },
@@ -914,13 +922,18 @@ registerContracts([
 {
   command: "research check",
   description:
-    "Poll each member once. While any member runs: complete false with pending members. Once all are terminal: fuse citations, store the report in the corpus, return complete true with the same result shape as research. Later checks return the stored result.",
+    "Poll each member of a started research once; when all are terminal, fuse sources and store the report. Input: id (research_id). Returns complete, pending members, or the final result.",
+  output:
+    "Running: { research_id, mode: \"async\", status: \"running\", complete: false, pending[] (providers), members: [{ provider, run_id, remote_id, status (incl. timed_out), source_count?, error?, check_error? }] }. Done: { research_id, mode: \"async\", status (succeeded | failed), complete: true, members?, result }, where result = { run_id, query, providers: [{ provider, ok, remote_id, source_count, error? }], reports {provider: native answer}, routing: [{ provider, mode, cost }], domain (web | academic), papers (paper-index result | {error} | null), web_search (unified search result | {error} | null), sources: [{ url, canonical_url, title?, providers[], corroborated, independent_group }], source_groups[], citation_intersection: { total_sources, corroborated, citations, independent_sources, independent_corroborated, providers_succeeded, providers_attempted }, skipped[], corpus?: { id, version, changed, created, url (survey://research/<run id>) } }. A blocking run returns { research_id, mode: \"blocking\", status, complete, corpus_url }.",
   inputSchema: ResearchIdInput,
   examples: [{ name: "check research", input: { id: RESEARCH_ID } }],
 },
 {
   command: "research wait",
-  description: "Repeat research check every interval_ms (default 5000) until complete; JobWaitTimeoutError after timeout_ms (default 900000).",
+  description:
+    "Repeat research check until the research completes. Input: id, interval_ms (default 5000), timeout_ms (default 900000). Returns the completed check plus waited_ms; JobWaitTimeoutError on timeout.",
+  output:
+    "The completed research check payload ({ research_id, mode, status, complete: true, members?, result } or the blocking form) plus waited_ms.",
   inputSchema: ResearchWaitInput,
   examples: [
     { name: "wait for research", input: { id: RESEARCH_ID } },
@@ -929,7 +942,10 @@ registerContracts([
 },
 {
   command: "research inspect",
-  description: "Local view of a research run: member runs, routing, result_ref and the stored result. Never calls providers.",
+  description:
+    "Show a recorded research run locally, without calling providers. Input: id (research_id). Returns run status, member runs, routing, result_ref and the stored result.",
+  output:
+    "{ research_id, mode (async | blocking), status, created_at, updated_at, query (null for blocking runs), members: [{ provider, kind, run_id, remote_id, status, updated_at, error? }], routing[], skipped[], result_ref (artifact path | null), result (stored research result, or undefined until finalized) }.",
   inputSchema: ResearchIdInput,
   examples: [{ name: "inspect research", input: { id: RESEARCH_ID } }],
 },

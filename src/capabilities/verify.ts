@@ -275,7 +275,7 @@ export const verifyCommand = makeJsonCommand({
   name: "verify",
   commandName: "verify",
   description:
-    "Check a claim across providers; confidence scales with independent sources (same page, registrable domain or syndicated title count once)",
+    "Check a claim with Exa answer and Parallel research (plus the paper index for academic claims). Input: claim, providers, domain, tier, store, tags. Returns verdicts and a confidence scored on independent sources.",
   schema: VerifyInput,
   run: (input) => verify(input),
 })
@@ -283,7 +283,9 @@ export const verifyCommand = makeJsonCommand({
 registerContract({
   command: "verify",
   description:
-    "Cross-provider claim verification. Citations are grouped into independent sources by canonical URL, registrable domain (eTLD+1) and near-duplicate title; confidence uses independent_sources, not raw citations.",
+    "Check a claim with Exa answer and Parallel research (plus the paper index for academic claims). Input: claim, providers, domain, tier, store, tags. Returns verdicts and a confidence scored on independent sources.",
+  output:
+    "{ claim, verdicts: [{ provider (exa | parallel | papers), ok, answer?, sources[] (canonical URLs), evidence? (papers), error? }], shared_sources: [{ canonical_url, provider_count }], corroborated_providers, citations, independent_sources, source_groups: [{ key, domains[], urls[], titles[], providers[], citations, merged_by[] }], confidence (none | low | medium | high), confidence_basis: { providers_succeeded, citations, independent_sources, rule }, domain (web | academic), routing: [{ provider, mode, cost }], skipped[], corpus?: { id, version, changed, created, url (survey://verify/<hash>) } }.",
   inputSchema: VerifyInput,
   examples: [
     {

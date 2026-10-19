@@ -141,14 +141,18 @@ export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
 export const extractCommand = makeJsonCommand({
   name: "extract",
   commandName: "extract",
-  description: "Route structured extraction to the right provider: file→llama, urls+schema→firecrawl, objective→parallel",
+  description:
+    "Route structured extraction by input: file/file_path to LlamaCloud, url(s)+schema to Firecrawl, objective/entity to Parallel; plain documents convert locally. Input: provider, url(s), file, schema, prompt, objective. Returns route and result.",
   schema: UnifiedExtractInput,
   run: (input) => unifiedExtract(input),
 })
 
 registerContract({
   command: "extract",
-  description: "Input-aware extraction router across providers",
+  description:
+    "Route structured extraction by input: file/file_path to LlamaCloud, url(s)+schema to Firecrawl, objective/entity to Parallel; plain documents convert locally. Input: provider, url(s), file, schema, prompt, objective. Returns route and result.",
+  output:
+    "{ routed_to (llama | firecrawl | parallel, or the local convert engine), route_reason, result (the routed provider's native payload, or the unified convert output for local conversions) }.",
   inputSchema: UnifiedExtractInput,
   examples: [
     { name: "pdf parse", input: { file_path: "./paper.pdf" } },

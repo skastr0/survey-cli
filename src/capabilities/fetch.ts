@@ -237,14 +237,17 @@ export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
   description:
-    "Fetch a URL with provider fallback (firecrawl → tinyfish → keenable → exa → parallel), keyless where no key is configured; tier free restricts to keyless access. Every fetched page is stored in the local corpus (store:false opts out); max_age_ms serves a fresh-enough corpus copy without a provider call. corpus.changed reports content changes since the last fetch.",
+    "Fetch one URL through a provider fallback chain (firecrawl, tinyfish, keenable, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
 
 registerContract({
   command: "fetch",
-  description: "Fetch URL content with provider fallback chain",
+  description:
+    "Fetch one URL through a provider fallback chain (firecrawl, tinyfish, keenable, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
+  output:
+    "{ url, provider, mode?, cost?, content (string|null), raw (provider payload; null when cached), attempted: [{ provider, ok, mode?, error? }] (skipped and failed providers in order), cached (true when served from the corpus under max_age_ms), age_ms? (cached only), corpus?: { id, version, changed (content differs from last fetch), created } }. corpus is absent when store is false or no content was extracted. All providers failing is AllProvidersFailedError.",
   inputSchema: UnifiedFetchInput,
   examples: [
     { name: "default chain", input: { url: "https://effect.website" } },
