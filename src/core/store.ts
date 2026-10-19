@@ -4,6 +4,9 @@ import { Context, Effect, Layer } from "effect"
 import { StoreError } from "./errors"
 import { storePath } from "./paths"
 
+/** How long a writer waits for another survey process's lock before failing. */
+export const BUSY_TIMEOUT_MS = 15_000
+
 export const RunStatus = [
   "queued",
   "running",
@@ -159,6 +162,7 @@ export class Store extends Context.Service<Store, {
         try: async () => {
           const { Database } = await import("bun:sqlite")
           const database = new Database(path, { create: true })
+          database.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
           database.exec("PRAGMA journal_mode = WAL")
           database.exec(MIGRATIONS)
           return database

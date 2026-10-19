@@ -5,7 +5,7 @@ import { Context, Effect, Layer } from "effect"
 
 import { StoreError } from "./errors"
 import { storePath } from "./paths"
-import { canonicalizeUrl } from "./store"
+import { BUSY_TIMEOUT_MS, canonicalizeUrl } from "./store"
 
 /**
  * Local research corpus: every document survey has read (web fetches, local
@@ -257,8 +257,9 @@ export class Corpus extends Context.Service<Corpus, {
         try: async () => {
           const { Database } = await import("bun:sqlite")
           const database = new Database(path, { create: true })
+          // busy_timeout first: switching to WAL and migrating both need the write lock.
+          database.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`)
           database.exec("PRAGMA journal_mode = WAL")
-          database.exec("PRAGMA busy_timeout = 5000")
           database.exec(MIGRATIONS)
           return database
         },
@@ -382,7 +383,10 @@ export class Corpus extends Context.Service<Corpus, {
       })
 
       return Corpus.of({
-        put: (doc) => run("put", () => put(doc)),
+        // IMMEDIATE takes the write lock up front: a deferred read→write upgrade
+        // fails instantly with SQLITE_BUSY under concurrent writers (pipe foreach,
+        // parallel agents) instead of waiting out busy_timeout.
+        put: (doc) => run("put", () => put.immediate(doc)),
 
         get: (ref) =>
           run("get", () => {

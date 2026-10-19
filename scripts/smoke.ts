@@ -173,6 +173,16 @@ try {
   const local = await call(["sql"], { query: "SELECT COUNT(*) AS n FROM documents", local: true })
   check("sql local over corpus", local.ok && local.data.rows[0]?.n === 2, local)
 
+  // Concurrent writers (pipe foreach, parallel agents) must wait for the lock, not fail.
+  const concurrent = await Promise.all(
+    Array.from({ length: 16 }, (_, i) =>
+      call(["corpus", "add"], { url: `note://smoke/concurrent/${i}`, content: `${"x".repeat(100_000)} ${i}` }),
+    ),
+  )
+  const lockFailures = concurrent.filter((result) => !result.ok || result.data?.error_count !== 0)
+  check("16 concurrent corpus writers all succeed", lockFailures.length === 0, lockFailures[0])
+  await call(["corpus", "remove"], Array.from({ length: 16 }, (_, i) => ({ url: `note://smoke/concurrent/${i}` })))
+
   // Pipe composes commands through the binary.
   const piped = await call(["pipe"], {
     steps: [
