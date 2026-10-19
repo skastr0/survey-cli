@@ -4,10 +4,10 @@ import type { AppEnv } from "../core/env"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
-import { CommandInputError } from "../core/errors"
+import { CommandInputError, MissingApiKeyError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { localConvertSource, unifiedConvert } from "./convert"
-import { ProviderName } from "../core/registry"
+import { PROVIDERS, ProviderName } from "../core/registry"
 import { providerAccess } from "../core/tiers"
 import { firecrawlApi } from "../providers/firecrawl"
 import { llamaApi } from "../providers/llama"
@@ -91,11 +91,10 @@ export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
   // Parallel's extract route is its URL extract (fetch capability), which runs keyless.
   const access = yield* providerAccess(route.provider, route.provider === "parallel" ? "fetch" : "extract")
   if (!access.available) {
-    return yield* Effect.fail({
-      _tag: "MissingApiKeyError" as const,
+    return yield* new MissingApiKeyError({
       provider: route.provider,
-      envVar: `${route.provider.toUpperCase()}_API_KEY`,
-      hint: `Set the ${route.provider} API key or choose another provider via the \`provider\` field.`,
+      envVar: PROVIDERS[route.provider].envVar,
+      hint: `${PROVIDERS[route.provider].keyHint} Or choose another provider via the \`provider\` field.`,
     })
   }
 

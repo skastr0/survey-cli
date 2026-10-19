@@ -3,7 +3,7 @@ import { Command } from "effect/unstable/cli"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContracts } from "../core/discovery"
-import { CommandInputError, ProviderUnsupportedError } from "../core/errors"
+import { CommandInputError, JobWaitTimeoutError, ProviderUnsupportedError } from "../core/errors"
 import { executeJsonCommand, toErrorDetails } from "../core/output"
 import type { AppEnv } from "../core/env"
 import { Store, type RunStatus } from "../core/store"
@@ -196,8 +196,7 @@ export const runsWait = makeJsonCommand({
           }
         }
         if (Date.now() >= deadline) {
-          return yield* Effect.fail({
-            _tag: "JobWaitTimeoutError" as const,
+          return yield* new JobWaitTimeoutError({
             provider: run.provider,
             jobId: run.remote_id,
             timeoutMs,

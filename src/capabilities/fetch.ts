@@ -5,7 +5,7 @@ import type { AppEnv } from "../core/env"
 import { makeJsonCommand } from "../core/command"
 import { recallDocument, rememberDocument } from "../core/corpus"
 import { registerContract } from "../core/discovery"
-import { ApiResponseError } from "../core/errors"
+import { AllProvidersFailedError, ApiResponseError, ProviderUnsupportedError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { ProviderName } from "../core/registry"
@@ -134,8 +134,7 @@ const tryProvider = (
       const payload = yield* parallelApi.extract({ urls: [input.url], ...overrides } as never)
       return { payload, ...extractContent(payload) }
     }
-    return yield* Effect.fail({
-      _tag: "ProviderUnsupportedError" as const,
+    return yield* new ProviderUnsupportedError({
       provider,
       capability: "fetch",
       message: `${provider} does not support unified fetch`,
@@ -224,14 +223,11 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
     })
   }
 
-  return yield* Effect.fail({
-    _tag: "ApiResponseError" as const,
-    provider: order.join(","),
-    method: "GET",
-    path: input.url,
-    status: 0,
-    message: `All fetch providers failed for ${input.url}`,
-    body: { attempted },
+  return yield* new AllProvidersFailedError({
+    capability: "fetch",
+    target: input.url,
+    attempted,
+    message: `All fetch providers failed for ${input.url} (tried ${order.join(", ")})`,
   })
 })
 
