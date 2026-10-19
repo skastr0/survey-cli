@@ -1,13 +1,104 @@
-import { Effect } from "effect"
+import { Effect, Exit, Option, Schema } from "effect"
 import { Argument, Command } from "effect/unstable/cli"
 
-import { CLI_NAME, CLI_VERSION } from "../core/constants"
-import { getContract, contractJsonSchema, listContracts } from "../core/discovery"
+import { ARTIFACT_INLINE_THRESHOLD_BYTES, CLI_NAME, CLI_VERSION } from "../core/constants"
+import { type CommandContract, getContract, contractJsonSchema, listContracts } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
 import { executeJsonCommand } from "../core/output"
 import { artifactDir, storePath, surveyHome } from "../core/paths"
 import { loadProviderConfig, LOCAL_PROVIDERS, localProviderNames, PROVIDERS, providerNames } from "../core/registry"
 import { localToolStatus } from "../local/tools"
+
+/** One flag or positional as the parser actually accepts it. */
+export interface ParamSurface {
+  readonly name: string
+  readonly type: string
+  readonly required: boolean
+  readonly description: string | null
+}
+
+/** What a leaf command accepts on argv, read from its `Command` definition. */
+export interface CommandSurface {
+  readonly command: string
+  readonly description: string | null
+  /** `required`/`optional`: one JSON payload argument; `none`: no input; `positional`: non-JSON args. */
+  readonly input: "required" | "optional" | "none" | "positional"
+  readonly args: ReadonlyArray<ParamSurface>
+  readonly flags: ReadonlyArray<ParamSurface>
+}
+
+interface HelpParam {
+  readonly name: string
+  readonly type: string
+  readonly required: boolean
+  readonly description: Option.Option<string>
+}
+
+// `buildHelpDoc` is the parser's own view of a command's params. It is not on
+// the public `Command` interface, so read it structurally (effect is pinned).
+type HelpDocSource = Command.Command.Any & {
+  readonly buildHelpDoc?: (path: ReadonlyArray<string>) => {
+    readonly args: ReadonlyArray<HelpParam>
+    readonly flags: ReadonlyArray<HelpParam>
+  }
+}
+
+const toParamSurface = (param: HelpParam): ParamSurface => ({
+  name: param.name,
+  type: param.type,
+  required: param.required,
+  description: Option.getOrNull(param.description),
+})
+
+let commandTree: Command.Command.Any | undefined
+
+/** Called once by the entry point so discovery can describe the real command tree. */
+export const registerCommandTree = (root: Command.Command.Any) => {
+  commandTree = root
+}
+
+export const listCommandSurfaces = (): ReadonlyArray<CommandSurface> => {
+  if (commandTree === undefined) return []
+  const surfaces: Array<CommandSurface> = []
+  const walk = (command: HelpDocSource, path: ReadonlyArray<string>) => {
+    const children = command.subcommands.flatMap((group) => group.commands)
+    if (children.length > 0) {
+      for (const child of children) walk(child as HelpDocSource, [...path, child.name])
+      return
+    }
+    const doc = command.buildHelpDoc?.([CLI_NAME, ...path])
+    const args = (doc?.args ?? []).map(toParamSurface)
+    const input = args.find((arg) => arg.name === "input")
+    surfaces.push({
+      command: path.join(" "),
+      description: command.description ?? null,
+      input: input ? (input.required ? "required" : "optional") : args.length > 0 ? "positional" : "none",
+      args,
+      flags: (doc?.flags ?? []).map(toParamSurface),
+    })
+  }
+  walk(commandTree as HelpDocSource, [])
+  return surfaces.sort((a, b) => a.command.localeCompare(b.command))
+}
+
+/**
+ * The parser takes the JSON argument as optional everywhere so an omitted
+ * payload yields a JsonInputError with a schema next_step. Whether a payload
+ * is really needed is decided by the schema: does `{}` decode?
+ */
+export const contractInputMode = (contract: CommandContract): "required" | "optional" | "none" => {
+  if (contract.inputSchema === undefined) return "none"
+  const decode = Schema.decodeUnknownExit(contract.inputSchema as Schema.Codec<unknown, unknown, never, never>)
+  return Exit.isSuccess(decode({})) ? "optional" : "required"
+}
+
+/** Top-level property names the schema requires, for one-glance payload construction. */
+export const requiredFields = (contract: CommandContract): ReadonlyArray<string> => {
+  const document = contractJsonSchema(contract) as { schema?: { required?: ReadonlyArray<string> } } | undefined
+  return document?.schema?.required ?? []
+}
+
+const surfaceIndex = () => new Map(listCommandSurfaces().map((surface) => [surface.command, surface]))
 
 export const doctorCommand = Command.make(
   "doctor",
@@ -24,20 +115,36 @@ export const doctorCommand = Command.make(
           Effect.gen(function* () {
             const config = yield* loadProviderConfig(name)
             const spec = PROVIDERS[name]
+            const configured = config.credential !== undefined
             return {
               provider: name,
-              configured: config.credential !== undefined,
+              configured,
               api_base_url: config.apiBaseUrl,
               public_fallback: spec.publicFallback,
+              ...(configured
+                ? {}
+                : {
+                    hint: spec.keyHint,
+                    next_step: `Export ${spec.envVar} or run \`${CLI_NAME} auth set '{"provider":"${name}","api_key":"..."}'\`.`,
+                  }),
             }
           }),
         )
 
         const localTools = yield* Effect.forEach(localProviderNames, localToolStatus)
+        const configured = providers.filter((provider) => provider.configured).map((provider) => provider.provider)
 
         return {
           cli: CLI_NAME,
           version: CLI_VERSION,
+          summary: {
+            providers_configured: configured,
+            providers_missing_key: providers.filter((provider) => !provider.configured).map((provider) => provider.provider),
+            keyless_available: providers
+              .filter((provider) => !provider.configured && provider.public_fallback)
+              .map((provider) => provider.provider),
+            local_tools_available: localTools.filter((tool) => tool.available).map((tool) => tool.tool),
+          },
           home,
           artifact_dir: artifacts,
           store_path: store,
@@ -47,7 +154,9 @@ export const doctorCommand = Command.make(
       }),
     )
   }),
-).pipe(Command.withDescription("Report environment readiness for all providers"))
+).pipe(Command.withDescription(
+      "Report environment readiness: survey home, artifact dir, store path, which providers have credentials (and how to add missing ones), and local tool availability. No input",
+    ))
 
 export const capabilitiesCommand = Command.make(
   "capabilities",
@@ -89,46 +198,87 @@ export const capabilitiesCommand = Command.make(
           ),
         )
 
+        const surfaces = surfaceIndex()
+        const contracted = new Set(contracts.map((contract) => contract.command))
+        const flagNames = (command: string) => surfaces.get(command)?.flags.map((flag) => flag.name) ?? []
+        const executionFlags = [...new Set([...surfaces.values()].flatMap((surface) => surface.flags.map((flag) => flag.name)))].sort()
+
         return {
           protocol: "survey-cli/v1",
           input: {
-            domain_payloads: "JSON objects or arrays via inline JSON, @file, -, or @-",
-            execution_flags: [
-              "--output inline|artifact|auto",
-              "--concurrency <n>",
-              "--timeout <ms>",
-              "--wait",
-              "--idempotency-key <key>",
-            ],
+            domain_payloads: "one JSON object (or array, for batch commands) via inline JSON, @file, -, or @-",
+            execution_flags: executionFlags.map((name) => `--${name}`),
+            flags_note: "Flags are per command: see commands[].flags. Passing a flag a command does not declare is a CliUsageError.",
           },
           output: {
             success_envelope: '{ "ok": true, "command": string, "data": object }',
             failure_envelope:
               '{ "ok": false, "command": string, "error": { "type": string, "message": string, "details": object } }',
-            stdout: "success envelopes only",
+            stdout: "success envelopes only (plus explicit --help/--version text)",
             stderr: "failure envelopes only",
+          },
+          exit_codes: {
+            "0": "success; one envelope on stdout",
+            "1": "failure; one envelope on stderr. Includes batches with error_count > 0 (full results still on stdout) and CliUsageError for unparseable argv",
+          },
+          errors: {
+            details_contract: {
+              retryable: "boolean, always present: whether rerunning the same call can succeed",
+              hint: "string, always present: what went wrong in agent terms",
+              next_step: "string, when a concrete recovery command exists",
+              issues: "[{path, message}] on JsonInputError/CommandInputError schema mismatches",
+            },
+            input_types: ["JsonInputError", "CommandInputError", "CliUsageError"],
+            discovery: `${CLI_NAME} schema show "<command>" and ${CLI_NAME} examples show "<command>"`,
           },
           batch: {
             input: "single JSON object or array of objects",
             outcome_values: ["succeeded", "partial_failure", "failed"],
+            item_shape: '{ "index": number, "ok": boolean, "data"?: object, "error"?: object }',
             exit_code: "1 when error_count > 0",
+            concurrency: "--concurrency <n> (default 5, positive integer) on commands that declare it",
+          },
+          artifacts: {
+            flag: "--output inline|artifact|auto (default auto)",
+            auto_threshold_bytes: ARTIFACT_INLINE_THRESHOLD_BYTES,
+            record: '{ "kind": "summary+artifact", "summary": string, "artifact": { "kind", "key", "absolute_path", "size_bytes", "created_at" } }',
+            directory: yield* artifactDir,
           },
           idempotency: {
             status: "local success-receipt; not a provider guarantee",
+            commands: [...surfaces.values()]
+              .filter((surface) => surface.flags.some((flag) => flag.name === "idempotency-key"))
+              .map((surface) => surface.command),
           },
+          discovery: ["doctor", "capabilities", "schema list", "schema show", "examples list", "examples show"],
           providers,
           local_providers: localProviders,
           commands: contracts.map((contract) => ({
             command: contract.command,
             description: contract.description,
+            input: contractInputMode(contract),
+            required_fields: requiredFields(contract),
+            flags: flagNames(contract.command),
             batch: contract.batch ?? false,
             orbit: contract.orbit ?? [],
+            ...(contract.output ? { output: contract.output } : {}),
           })),
+          other_commands: [...surfaces.values()]
+            .filter((surface) => !contracted.has(surface.command))
+            .map((surface) => ({
+              command: surface.command,
+              description: surface.description,
+              input: surface.input,
+              args: surface.args.map((arg) => arg.name),
+              flags: surface.flags.map((flag) => flag.name),
+            })),
         }
       }),
     )
   }),
-).pipe(Command.withDescription("Report the command inventory, protocol contract, and provider capability matrix"))
+).pipe(Command.withDescription(
+      "Report the protocol contract (envelopes, exit codes, error details, batch, artifacts, idempotency), every command with its input mode, required fields and accepted flags, and the provider capability matrix. No input",
+    ))
 
 export const schemaCommand = Command.make("schema").pipe(
   Command.withDescription("Inspect JSON input contracts"),
@@ -149,7 +299,7 @@ export const schemaCommand = Command.make("schema").pipe(
           }),
         )
       }),
-    ).pipe(Command.withDescription("List commands with JSON input schemas")),
+    ).pipe(Command.withDescription("List every command that takes a JSON payload, with its description. No input")),
     Command.make(
       "show",
       { command: Argument.string("command").pipe(Argument.withDescription("Command path, e.g. \"exa web-search\" or \"search\"")) },
@@ -165,15 +315,25 @@ export const schemaCommand = Command.make("schema").pipe(
               })
             }
             const doc = contractJsonSchema(contract)
+            const surface = surfaceIndex().get(contract.command)
             return {
               command: contract.command,
               description: contract.description,
+              input: contractInputMode(contract),
+              batch: contract.batch ?? false,
+              required_fields: requiredFields(contract),
+              flags: surface?.flags ?? [],
+              ...(contract.output ? { output: contract.output } : {}),
+              orbit: contract.orbit ?? [],
+              examples: (contract.examples ?? []).map((example) => example.name),
               json_schema: doc ?? null,
             }
           }),
         )
       }),
-    ).pipe(Command.withDescription("Show the JSON Schema for one command's input")),
+    ).pipe(Command.withDescription(
+      "Show one command's input contract: JSON Schema, required fields, batch support, accepted flags, output notes, and example names. Argument: the command path, e.g. \"exa web-search\"",
+    )),
   ]),
 )
 
@@ -196,7 +356,7 @@ export const examplesCommand = Command.make("examples").pipe(
           }),
         )
       }),
-    ).pipe(Command.withDescription("List commands that have examples")),
+    ).pipe(Command.withDescription("List every command with the names of its executable example payloads. No input")),
     Command.make(
       "show",
       { command: Argument.string("command").pipe(Argument.withDescription("Command path or example name")) },
@@ -226,6 +386,8 @@ export const examplesCommand = Command.make("examples").pipe(
           }),
         )
       }),
-    ).pipe(Command.withDescription("Show examples for a command or one named example")),
+    ).pipe(Command.withDescription(
+      "Show copy-pastable example payloads. Argument: a command path (all its examples) or one example name (matching examples across commands)",
+    )),
   ]),
 )

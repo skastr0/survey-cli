@@ -10,6 +10,7 @@ import {
   capabilitiesCommand,
   doctorCommand,
   examplesCommand,
+  registerCommandTree,
   schemaCommand,
 } from "./commands/discovery"
 import { compareCommand } from "./capabilities/compare"
@@ -74,6 +75,8 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     watchCommand,
   ]),
 )
+
+registerCommandTree(rootCommand)
 
 const runtimeLayer = Layer.mergeAll(
   BunServices.layer,
