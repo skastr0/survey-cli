@@ -803,6 +803,47 @@ describe("llama parse", () => {
     }),
   )
 
+  it.live("decodes the live upload shape with user_metadata: null", () =>
+    Effect.gen(function* () {
+      const filePath = writePdf("sample.pdf")
+      // Captured from POST /api/v2/parse/upload on 2026-10-19 (ids redacted).
+      const uploadResponse = {
+        user_metadata: null,
+        id: "pjb-redacted",
+        created_at: "2026-10-19T06:31:08.506041Z",
+        updated_at: "2026-10-19T06:31:11.800049Z",
+        project_id: "00000000-0000-0000-0000-000000000000",
+        status: "COMPLETED",
+        error_message: null,
+        name: "sample.pdf",
+        tier: "fast",
+      }
+      const port = yield* Effect.promise(() =>
+        startMockServer(async (request) => {
+          const url = new URL(request.url)
+          if (request.method === "POST" && url.pathname === "/api/v2/parse/upload") {
+            return Response.json(uploadResponse)
+          }
+          return Response.json({
+            job: uploadResponse,
+            markdown: null,
+            text: { pages: [{ page_number: 1, text: "Survey Validation Report" }] },
+          })
+        }),
+      )
+      useServer(port)
+
+      const result = yield* runLlama(
+        ["parse", "run", JSON.stringify({ file_path: filePath, tier: "fast", poll_interval_ms: 10, timeout_seconds: 5 })],
+        makeStore(),
+      )
+      expect(result.exitCode).toBe(0)
+      const payload = expectJson<{ data: { job: { user_metadata: null; tier: string } } }>(result.stdout)
+      expect(payload.data.job.user_metadata).toBeNull()
+      expect(payload.data.job.tier).toBe("fast")
+    }),
+  )
+
   it.live("wait fails with JobFailedError when the job fails", () =>
     Effect.gen(function* () {
       const port = yield* Effect.promise(() =>

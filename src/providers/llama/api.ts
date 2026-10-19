@@ -87,7 +87,8 @@ export const ParseJobSchema = Schema.StructWithRest(
     error_message: Schema.optional(Schema.NullOr(Schema.String)),
     name: Schema.optional(Schema.NullOr(Schema.String)),
     tier: Schema.optional(Schema.String),
-    user_metadata: Schema.optional(JsonRecordSchema),
+    // Live POST /api/v2/parse/upload returns "user_metadata": null.
+    user_metadata: Schema.optional(Schema.NullOr(JsonRecordSchema)),
     usage: Schema.optional(Schema.Unknown),
   }),
   [JsonRecordSchema],
