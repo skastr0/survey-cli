@@ -15,6 +15,7 @@ import { parallelApi } from "../providers/parallel"
 import { tinyfishApi } from "../providers/tinyfish"
 import { Domain, wantsPapers } from "./academic"
 import { papers as searchPapers } from "./papers"
+import { corpusRef, renderOutput, rememberReport, shortHash } from "./report"
 import { unifiedSearch } from "./search"
 
 const RESEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "firecrawl", "tinyfish"]
@@ -31,6 +32,9 @@ export const ResearchInput = Schema.Struct({
     description:
       "free: skip keyed deep-research agents; use keyless paper index and keyless web search instead. any (default).",
   })),
+  /** Remember the final report in the corpus as kind "report" (default true). */
+  store: Schema.optional(Schema.Boolean),
+  tags: Schema.optional(Schema.Array(Schema.String)),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -106,6 +110,33 @@ const startAndWait = (
       } satisfies ProviderResearchOutcome),
     ),
   ) as Effect.Effect<ProviderResearchOutcome, never, AppEnv>
+
+const researchMarkdown = (parts: {
+  readonly query: string
+  readonly reports: Record<string, unknown>
+  readonly lanes: ReadonlyArray<ProviderResearchOutcome>
+  readonly sources: ReadonlyArray<{ url: string; title?: string | undefined; providers: ReadonlyArray<string>; corroborated: boolean }>
+  readonly failed: ReadonlyArray<ProviderResearchOutcome>
+}) => {
+  const sections = [`# Research: ${parts.query}`]
+  for (const [provider, output] of Object.entries(parts.reports)) {
+    sections.push(`## ${provider}\n\n${renderOutput(output)}`)
+  }
+  for (const lane of parts.lanes) {
+    sections.push(`## ${lane.provider} (evidence)\n\n${renderOutput(lane.output)}`)
+  }
+  if (parts.sources.length > 0) {
+    sections.push(
+      `## Sources\n\n${parts.sources
+        .map((s) => `- ${s.title ? `${s.title} — ` : ""}${s.url} (${s.providers.join(", ")}${s.corroborated ? ", corroborated" : ""})`)
+        .join("\n")}`,
+    )
+  }
+  if (parts.failed.length > 0) {
+    sections.push(`## Providers that failed\n\n${parts.failed.map((o) => `- ${o.provider}`).join("\n")}`)
+  }
+  return sections.join("\n\n")
+}
 
 export const research = Effect.fn("research")(function* (input: ResearchInput) {
   const timeoutMs = input.timeout_ms ?? (input.depth === "deep" ? 900_000 : 300_000)
@@ -300,8 +331,37 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
     status: succeeded.length > 0 ? "succeeded" : "failed",
   })
 
+  const reports = Object.fromEntries(outcomes.filter((o) => o.ok).map((o) => [o.provider, o.output]))
+  const reportUrl = `survey://research/${run?.id ?? shortHash(`${input.query}\n${Date.now()}`)}`
+  const remembered =
+    input.store === false || succeeded.length === 0
+      ? undefined
+      : yield* rememberReport({
+          url: reportUrl,
+          title: `Research: ${input.query}`,
+          tags: input.tags,
+          content: researchMarkdown({
+            query: input.query,
+            reports,
+            lanes: laneOutcomes,
+            sources,
+            failed: fused.filter((o) => !o.ok),
+          }),
+          metadata: {
+            run_id: run?.id ?? null,
+            query: input.query,
+            depth: input.depth ?? "standard",
+            domain: academic ? "academic" : "web",
+            providers_attempted: fused.map((o) => o.provider),
+            providers_succeeded: succeeded.map((o) => o.provider),
+            source_count: sources.length,
+            corroborated: sources.filter((s) => s.corroborated).length,
+          },
+        })
+
   return {
     run_id: run?.id ?? null,
+    ...corpusRef(remembered, reportUrl),
     query: input.query,
     providers: outcomes.map((o) => ({
       provider: o.provider,
@@ -310,9 +370,7 @@ export const research = Effect.fn("research")(function* (input: ResearchInput) {
       source_count: o.sources.length,
       ...(o.error ? { error: o.error } : {}),
     })),
-    reports: Object.fromEntries(
-      outcomes.filter((o) => o.ok).map((o) => [o.provider, o.output]),
-    ),
+    reports,
     routing: routed.eligible.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
     domain: academic ? "academic" : "web",
     papers: papersOutcome === undefined ? null : papersOutcome.ok ? papersOutcome.result : { error: papersOutcome.error },
@@ -358,6 +416,15 @@ registerContract({
       name: "free tier",
       description: "No account credits: keyless paper index plus keyless web search",
       input: { query: "Evidence on intermittent fasting and longevity in clinical trials", tier: "free" },
+    },
+    {
+      name: "keep the report out of the corpus / tag it",
+      description: "Reports are remembered as kind report at survey://research/<run id> unless store is false; the response carries corpus {id, version, changed, created, url}.",
+      input: { query: "Who maintains the Bun runtime?", store: false },
+    },
+    {
+      name: "tagged report",
+      input: { query: "State of WASI preview 2 adoption", tags: ["wasm", "q4"] },
     },
     {
       name: "exa + tinyfish jury",
