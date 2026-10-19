@@ -781,6 +781,32 @@ describe("unified error envelopes", () => {
     return { raw: exit, envelope: toErrorDetails(exit) }
   }
 
+  it("extract urls + schema registers the async Firecrawl job as a run", async () => {
+    // Live POST /v2/extract response (2026-10-19), id redacted.
+    await withStub(
+      {
+        "/fc/extract": () => ({
+          body: {
+            success: true,
+            id: "01a152db-0000-0000-0000-000000000000",
+            urlTrace: [],
+            warnings: ["/v2/extract is deprecated. Use /v2/scrape with formats including a 'json' format object."],
+            replacement: "/v2/scrape",
+          },
+        }),
+      },
+      { FIRECRAWL_API_KEY: "fc-key" },
+      async () => {
+        const result = (await run(
+          unifiedExtract({ urls: ["https://example.com"], schema: { type: "object", properties: { title: { type: "string" } } } }),
+        )) as { routed_to: string; result: { id: string; status: string; run_id?: string } }
+        expect(result.routed_to).toBe("firecrawl")
+        expect(result.result).toMatchObject({ id: "01a152db-0000-0000-0000-000000000000", status: "submitted" })
+        expect(typeof result.result.run_id).toBe("string")
+      },
+    )
+  })
+
   it("extract with only an objective runs a Parallel objective search", async () => {
     // Result shape captured from live keyed POST /v1/search on 2026-10-19 (ids redacted).
     await withStub(
