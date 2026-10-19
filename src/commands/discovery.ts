@@ -1,5 +1,5 @@
 import { Effect, Exit, Option, Schema } from "effect"
-import { Argument, Command } from "effect/unstable/cli"
+import { Argument, CliOutput, Command } from "effect/unstable/cli"
 
 import { ARTIFACT_INLINE_THRESHOLD_BYTES, CLI_NAME, CLI_VERSION } from "../core/constants"
 import { type CommandContract, getContract, contractJsonSchema, listContracts } from "../core/discovery"
@@ -97,6 +97,56 @@ export const requiredFields = (contract: CommandContract): ReadonlyArray<string>
   const document = contractJsonSchema(contract) as { schema?: { required?: ReadonlyArray<string> } } | undefined
   return document?.schema?.required ?? []
 }
+
+const commandPathFromUsage = (usage: string) =>
+  usage
+    .replace(new RegExp(`^${CLI_NAME}\\s*`), "")
+    .split(/\s+[[<]/)[0]!
+    .trim()
+
+/** The CONTRACT help section for one command: input, output, examples, schema pointer. */
+export const contractHelpSection = (command: string): string | undefined => {
+  const contract = getContract(command)
+  if (contract === undefined) return undefined
+  const mode = contractInputMode(contract)
+  const required = requiredFields(contract)
+  const examples = (contract.examples ?? []).map((example) => example.name)
+  const rows: Array<[string, string]> = [
+    [
+      "Input",
+      mode === "none"
+        ? "none"
+        : `one JSON ${contract.batch ? "object or an array of objects" : "object"} (${mode})${required.length > 0 ? `; required fields: ${required.join(", ")}` : ""}`,
+    ],
+    [
+      "Returns",
+      contract.output ??
+        (contract.batch
+          ? "{outcome, total, success_count, error_count, results[{index, ok, data|error}]} on stdout; exit 1 if any item failed"
+          : "{ok: true, command, data} on stdout; failures as {ok: false, error} on stderr, exit 1"),
+    ],
+    ...(contract.orbit && contract.orbit.length > 0 ? [["Lifecycle", contract.orbit.join(" → ")] as [string, string]] : []),
+    ...(examples.length > 0
+      ? [["Examples", `${examples.join(", ")} — ${CLI_NAME} examples show "${command}"`] as [string, string]]
+      : []),
+    ["Schema", `${CLI_NAME} schema show "${command}"`],
+  ]
+  return ["CONTRACT", ...rows.map(([label, value]) => `  ${label.padEnd(10)}${value}`)].join("\n")
+}
+
+/** Wrap the help formatter so every command's --help ends with its JSON contract. */
+export const contractHelpFormatter = (base: CliOutput.Formatter): CliOutput.Formatter => ({
+  ...base,
+  formatHelpDoc: (doc) => {
+    const text = base.formatHelpDoc(doc)
+    const section = contractHelpSection(commandPathFromUsage(doc.usage))
+    if (section === undefined) return text
+    const globalFlags = text.indexOf("\nGLOBAL FLAGS")
+    return globalFlags === -1
+      ? `${text}\n\n${section}`
+      : `${text.slice(0, globalFlags)}\n${section}\n${text.slice(globalFlags)}`
+  },
+})
 
 const surfaceIndex = () => new Map(listCommandSurfaces().map((surface) => [surface.command, surface]))
 
@@ -241,7 +291,7 @@ export const capabilitiesCommand = Command.make(
           artifacts: {
             flag: "--output inline|artifact|auto (default auto)",
             auto_threshold_bytes: ARTIFACT_INLINE_THRESHOLD_BYTES,
-            record: '{ "kind": "summary+artifact", "summary": string, "artifact": { "kind", "key", "absolute_path", "size_bytes", "created_at" } }',
+            record: '{ "kind": "summary+artifact", "summary": string, "artifact": { "kind", "key", "absolute_path", "size_bytes", "created_at" }, "next_step": string }',
             directory: yield* artifactDir,
           },
           idempotency: {

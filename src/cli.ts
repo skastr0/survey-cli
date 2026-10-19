@@ -2,12 +2,13 @@
 
 import { Console, Effect, Layer } from "effect"
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { CliError, Command } from "effect/unstable/cli"
+import { CliError, CliOutput, Command } from "effect/unstable/cli"
 
 import { authCommand } from "./commands/auth"
 import { mcpCommand } from "./commands/mcp"
 import {
   capabilitiesCommand,
+  contractHelpFormatter,
   doctorCommand,
   examplesCommand,
   registerCommandTree,
@@ -118,6 +119,7 @@ const toUsageError = (error: CliError.ShowHelp) => {
 const program = rootCommand.pipe(
   Command.run({ version: CLI_VERSION, renderErrors: false }),
   Effect.provideService(Console.Console, bufferedConsole),
+  Effect.provideService(CliOutput.Formatter, contractHelpFormatter(CliOutput.defaultFormatter())),
   Effect.andThen(flushFrameworkStdout),
   Effect.catch((error: unknown) =>
     CliError.isCliError(error) && error._tag === "ShowHelp"
