@@ -1,11 +1,13 @@
 import { Effect, FileSystem, Schema } from "effect"
-import { basename } from "node:path"
+import { createHash } from "node:crypto"
+import { basename, extname, resolve } from "node:path"
 
 import type { AppEnv } from "../core/env"
 
 import { makeOneOrManyCommand } from "../local/command"
 import { registerContract } from "../core/discovery"
 import { LocalToolError, LocalToolUnavailableError } from "../core/errors"
+import { rememberDocument } from "../core/corpus"
 import { loadProviderConfig } from "../core/registry"
 import {
   documentSourceFields,
@@ -28,6 +30,10 @@ export const UnifiedConvertInput = Schema.Struct({
    */
   route: Schema.optional(Schema.Literals(["auto", "local", "llama"])),
   llama_options: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  /** Remember a complete conversion in the local corpus (default true). */
+  store: Schema.optional(Schema.Boolean),
+  title: Schema.optional(Schema.String),
+  tags: Schema.optional(Schema.Array(Schema.String)),
 })
 export type UnifiedConvertInput = typeof UnifiedConvertInput.Type
 
@@ -358,11 +364,10 @@ const convertOffice = (doc: LoadedDocument, input: UnifiedConvertInput) =>
     })
   })
 
-export const unifiedConvert = Effect.fn("unifiedConvert")(function* (
+const routeConvert = Effect.fn("routeConvert")(function* (
+  doc: LoadedDocument,
   input: UnifiedConvertInput,
 ) {
-  const doc = yield* loadDocumentSource(input)
-
   if (input.route === "llama") {
     const hosted = yield* llamaConvert(doc, input)
     return done({
@@ -378,7 +383,66 @@ export const unifiedConvert = Effect.fn("unifiedConvert")(function* (
   return yield* isPdf(doc, input.format) ? convertPdf(doc, input) : convertOffice(doc, input)
 })
 
-const DOCUMENT_EXTENSIONS = new Set([
+/** Stable corpus key: the source URL, the absolute file:// path, or the content hash for base64. */
+export const documentUrl = (doc: LoadedDocument) =>
+  doc.url ??
+  (doc.path !== null
+    ? `file://${resolve(doc.path)}`
+    : `sha256:${createHash("sha256").update(doc.bytes).digest("hex")}`)
+
+const documentTitle = (doc: LoadedDocument, explicit: string | undefined) => {
+  if (explicit !== undefined) return explicit
+  if (doc.path !== null) return basename(doc.path)
+  if (doc.filename !== null) return basename(doc.filename.split("?")[0]!)
+  return undefined
+}
+
+type RoutedConversion = Effect.Success<ReturnType<typeof routeConvert>>
+
+/** Corpus record for a finished conversion: kind "document", provider = the engine that produced it. */
+export const corpusRecord = (
+  doc: LoadedDocument,
+  result: RoutedConversion,
+  options: { readonly title?: string | undefined; readonly tags?: ReadonlyArray<string> | undefined },
+) => ({
+  url: documentUrl(doc),
+  content: result.markdown ?? "",
+  title: documentTitle(doc, options.title),
+  provider: result.route.engine,
+  kind: "document",
+  tags: options.tags,
+  metadata: {
+    route: result.route.selected,
+    reason: result.route.reason,
+    ...("format" in result && result.format ? { format: result.format } : {}),
+    ...("classification" in result && result.classification ? { classification: result.classification } : {}),
+    ...("pdf" in result && result.pdf ? { pdf: result.pdf } : {}),
+    source_bytes: doc.bytes.byteLength,
+  } as Record<string, unknown>,
+})
+
+export const unifiedConvert = Effect.fn("unifiedConvert")(function* (
+  input: UnifiedConvertInput,
+) {
+  const doc = yield* loadDocumentSource(input)
+  const result = yield* routeConvert(doc, input)
+  if (input.store === false || !result.complete || !result.markdown) return result
+
+  const remembered = yield* rememberDocument(corpusRecord(doc, result, input))
+  return remembered === undefined
+    ? result
+    : {
+        ...result,
+        corpus: {
+          id: remembered.id,
+          version: remembered.version,
+          changed: remembered.changed,
+          created: remembered.created,
+        },
+      }
+})
+
+export const DOCUMENT_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "docm", "odt", "rtf", "epub", "ppt", "pptx", "pptm", "pps", "ppsx",
   "xls", "xlsx", "xlsm", "xlsb", "ods", "odp", "csv",
 ])
@@ -409,6 +473,12 @@ export const localConvertSource = (input: {
   return undefined
 }
 
+/** Documents `corpus add` must convert; csv stays on the plain-text fast path. */
+export const isConvertiblePath = (path: string) => {
+  const ext = extname(path).replace(/^\./, "").toLowerCase()
+  return ext !== "csv" && DOCUMENT_EXTENSIONS.has(ext)
+}
+
 export type UnifiedConvertResult = Effect.Success<ReturnType<typeof unifiedConvert>>
 
 export const convertCommand = makeOneOrManyCommand({
@@ -423,16 +493,18 @@ export const convertCommand = makeOneOrManyCommand({
 registerContract({
   command: "convert",
   description:
-    "Local-first document to Markdown router. PDF → pdf-inspector classify: text-based extracts locally (free, private); scanned/image-only/mixed or garbled-font PDFs go to LlamaCloud parse when LLAMA_CLOUD_API_KEY is set, else return status needs_ocr with the classification. Non-PDF office files → anydoc. URLs are downloaded then converted locally. Every response names the route taken and why (route.selected, route.reason, route.trace). route=local forbids any hosted call.",
+    "Local-first document to Markdown router. PDF → pdf-inspector classify: text-based extracts locally (free, private); scanned/image-only/mixed or garbled-font PDFs go to LlamaCloud parse when LLAMA_CLOUD_API_KEY is set, else return status needs_ocr with the classification. Non-PDF office files → anydoc. URLs are downloaded then converted locally. Every response names the route taken and why (route.selected, route.reason, route.trace). Complete conversions are remembered in the local corpus (kind document, url = source URL or file:// path) unless store is false; the response then carries corpus {id, version, changed, created}. route=local forbids any hosted call.",
   inputSchema: UnifiedConvertInput,
   batch: true,
   output:
-    "{ status: converted|needs_ocr, needs_ocr, complete, route: {selected, kind, engine, mode, reason, trace[]}, source, classification?, format?, markdown? , next_step? }",
+    "{ status: converted|needs_ocr, needs_ocr, complete, route: {selected, kind, engine, mode, reason, trace[]}, source, classification?, format?, markdown?, next_step?, corpus?: {id, version, changed, created} }",
   examples: [
     { name: "local file, any format", input: { path: "./paper.pdf" } },
     { name: "document url, keyless", input: { url: "https://example.com/report.docx" } },
     { name: "never leave the machine", input: { path: "./scan.pdf", route: "local" } },
     { name: "force hosted parse", input: { path: "./scan.pdf", route: "llama", llama_options: { tier: "cost_effective" } } },
     { name: "ordered batch", input: [{ path: "./a.pdf" }, { path: "./b.docx" }] },
+    { name: "do not remember in the corpus", input: { path: "./draft.docx", store: false } },
+    { name: "tag and title for the corpus", input: { url: "https://example.com/paper.pdf", title: "Paper", tags: ["papers"] } },
   ],
 })
