@@ -98,3 +98,24 @@ describe("mergeResults", () => {
     expect(merged.find((r) => r.canonical_url === "https://b.com")?.ranks).toEqual({ exa: 2 })
   })
 })
+
+import { compareResults } from "../src/capabilities/compare"
+
+describe("compareResults", () => {
+  it("builds per-provider lists, pairwise overlap, and consensus from fused ranks", () => {
+    const merged = mergeResults([
+      { provider: "exa" as const, ok: true, results: [row("https://a.com"), row("https://b.com")] },
+      { provider: "keenable" as const, ok: true, results: [row("https://b.com"), row("https://c.com")] },
+    ])
+    const view = compareResults(merged, ["exa", "keenable"])
+    expect(view.summary).toEqual({ unique_urls: 3, corroborated_urls: 1, agreement_rate: 0.333 })
+    expect(view.overlap).toEqual([{ a: "exa", b: "keenable", shared: 1, jaccard: 0.333 }])
+    const exa = view.providers.find((p) => p.provider === "exa")!
+    expect(exa.results.map((r) => [r.rank, r.url, r.also_in])).toEqual([
+      [1, "https://a.com", []],
+      [2, "https://b.com", ["keenable"]],
+    ])
+    expect(exa.unique).toBe(1)
+    expect(view.consensus.map((c) => c.url)).toEqual(["https://b.com"])
+  })
+})

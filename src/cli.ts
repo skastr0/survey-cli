@@ -12,6 +12,7 @@ import {
   examplesCommand,
   schemaCommand,
 } from "./commands/discovery"
+import { compareCommand } from "./capabilities/compare"
 import { corpusCommand } from "./capabilities/corpus"
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
@@ -23,6 +24,7 @@ import { searchCommand } from "./capabilities/search"
 import { sourcesCommand } from "./capabilities/sources"
 import { sqlCommand } from "./capabilities/sql"
 import { verifyCommand } from "./capabilities/verify"
+import { watchCommand } from "./capabilities/watch"
 import { CLI_NAME, CLI_VERSION } from "./core/constants"
 import { Corpus } from "./core/corpus"
 import { HttpClientLayer } from "./core/http"
@@ -59,6 +61,8 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     corpusCommand,
     mcpCommand,
     pipeCommand,
+    compareCommand,
+    watchCommand,
   ]),
 )
 
