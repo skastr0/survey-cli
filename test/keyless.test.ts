@@ -392,6 +392,37 @@ describe("exa keyless MCP", () => {
     ])
   })
 
+  it("keeps --- rules inside a page and splits web_fetch_exa pages joined without ---", () => {
+    // Shape of live web_fetch_exa text for two URLs (2026-10-19), bodies shortened.
+    const fetched = [
+      "# SQLite | Bun Docs",
+      "URL: https://bun.sh/docs/api/sqlite",
+      "",
+      "# SQLite",
+      "",
+      "View and run the benchmark source.",
+      "",
+      "---",
+      "",
+      "## Database",
+      "",
+      "To open or create a SQLite3 database:",
+      "",
+      "# Example Domain",
+      "URL: https://example.com",
+      "",
+      "Example Domain",
+    ].join("\n")
+    expect(parseExaMcpText(fetched)).toEqual([
+      {
+        url: "https://bun.sh/docs/api/sqlite",
+        title: "SQLite | Bun Docs",
+        text: "# SQLite\n\nView and run the benchmark source.\n\n---\n\n## Database\n\nTo open or create a SQLite3 database:",
+      },
+      { url: "https://example.com", title: "Example Domain", text: "Example Domain" },
+    ])
+  })
+
   it("webSearch without a key calls the MCP tool over SSE and reports ignored options", async () => {
     await withStub(
       {
@@ -432,6 +463,30 @@ describe("exa keyless MCP", () => {
         const result = (await run(exaApi.webSearch({ query: "x" } as never))) as unknown as { auth_mode: string }
         expect(result.auth_mode).toBe("keyed")
         expect(seen[0]?.headers["x-api-key"]).toBe("exa-key")
+      },
+    )
+  })
+})
+
+describe("exa keyless contents", () => {
+  it("asks web_fetch_exa for full text unless maxCharacters is given", async () => {
+    const asked: Array<unknown> = []
+    await withStub(
+      {
+        "/exa-mcp": mcpHandler({
+          sse: true,
+          call: (name, args) => {
+            expect(name).toBe("web_fetch_exa")
+            asked.push(args.maxCharacters)
+            return { content: [{ type: "text", text: "# Page\nURL: https://example.com\n\nbody" }] }
+          },
+        }),
+      },
+      {},
+      async () => {
+        await run(exaApi.contents({ url: "https://example.com" } as never))
+        await run(exaApi.contents({ url: "https://example.com", maxCharacters: 500 } as never))
+        expect(asked).toEqual([100_000, 500])
       },
     )
   })

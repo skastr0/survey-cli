@@ -26,9 +26,16 @@ export interface ExaKeylessResult {
 
 const HEADER = /^(Title|URL|Published|Author):\s*(.*)$/
 
-/** Split `Title:/URL:/Published:/Author:` blocks separated by `---` lines. */
+/**
+ * A record starts at `Title: …` (web_search_exa, records joined by `---`) or
+ * `# Title` (web_fetch_exa, records joined by a blank line), followed by
+ * `URL:`. Page bodies contain their own `---` rules, so only split there.
+ */
+const RECORD_START = /\n+(?:-{3,}\n+)?(?=(?:Title: |# )[^\n]*\nURL: )/
+
+/** Split `Title:/URL:/Published:/Author:` records (see RECORD_START). */
 export const parseExaMcpText = (text: string): ReadonlyArray<ExaKeylessResult> =>
-  text.split(/\n-{3,}\n/).flatMap((block) => {
+  text.split(RECORD_START).flatMap((block) => {
     const fields: Record<string, string> = {}
     const body: Array<string> = []
     let inBody = false
@@ -103,10 +110,17 @@ export const keylessWebSearch = (input: WebSearchInput, numResults: number) =>
     })),
   )
 
+/**
+ * web_fetch_exa truncates to 3000 characters per page unless maxCharacters is
+ * set (live 2026-10-19: 3057 vs 22416 chars for bun.sh/docs/api/sqlite); the
+ * keyed /contents returns full text, so ask for the same by default.
+ */
+const KEYLESS_FULL_TEXT_CHARS = 100_000
+
 export const keylessContents = (input: ContentsInput, urls: ReadonlyArray<string>) =>
   callTool("web_fetch_exa", {
     urls,
-    ...(input.maxCharacters !== undefined ? { maxCharacters: input.maxCharacters } : {}),
+    maxCharacters: input.maxCharacters ?? KEYLESS_FULL_TEXT_CHARS,
   }).pipe(
     Effect.map(({ url, results }) => ({
       auth_mode: "public" as const,
