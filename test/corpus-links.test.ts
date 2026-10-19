@@ -261,7 +261,7 @@ describe("search read_top", () => {
 
       const { body } = yield* run([
         "search",
-        json({ query: "q", providers: ["keenable"], tier: "free", read_top: 2, tags: ["rt"] }),
+        json({ query: "q", providers: ["keenable"], tier: "free", read_top: 2, tags: ["rt"], read_providers: ["keenable"] }),
       ])
       expect(body.ok).toBe(true)
       const results = body.data.results as Array<any>
@@ -315,12 +315,12 @@ describe("search read_top", () => {
     Effect.gen(function* () {
       const port = yield* Effect.promise(() => keenableStub({ delayMs: 200 }))
       process.env.KEENABLE_API_BASE_URL = `http://127.0.0.1:${port}`
-      yield* run(["search", json({ query: "q", providers: ["keenable"], tier: "free", read_top: 4, read_concurrency: 1 })])
+      yield* run(["search", json({ query: "q", providers: ["keenable"], tier: "free", read_top: 4, read_concurrency: 1, read_providers: ["keenable"] })])
       expect(maxInFlight).toBe(1)
       docs.length = 0
       seen.length = 0
       maxInFlight = 0
-      yield* run(["search", json({ query: "q", providers: ["keenable"], tier: "free", read_top: 4, read_concurrency: 2 })])
+      yield* run(["search", json({ query: "q", providers: ["keenable"], tier: "free", read_top: 4, read_concurrency: 2, read_providers: ["keenable"] })])
       expect(maxInFlight).toBe(2)
     }),
   )
@@ -329,7 +329,7 @@ describe("search read_top", () => {
     Effect.gen(function* () {
       const port = yield* Effect.promise(() => keenableStub())
       process.env.KEENABLE_API_BASE_URL = `http://127.0.0.1:${port}`
-      const input = { query: "q", providers: ["keenable"], tier: "free", read_top: 2, max_age_ms: 3_600_000 }
+      const input = { query: "q", providers: ["keenable"], tier: "free", read_top: 2, max_age_ms: 3_600_000, read_providers: ["keenable"] }
       yield* run(["search", json(input)])
       seen.length = 0
       const second = yield* run(["search", json(input)])
