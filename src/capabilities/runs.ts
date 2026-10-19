@@ -3,7 +3,7 @@ import { Command } from "effect/unstable/cli"
 
 import { makeJsonCommand } from "../core/command"
 import { registerContracts } from "../core/discovery"
-import { CommandInputError, ProviderUnsupportedError } from "../core/errors"
+import { CommandInputError, JobWaitTimeoutError, ProviderUnsupportedError } from "../core/errors"
 import { executeJsonCommand, toErrorDetails } from "../core/output"
 import type { AppEnv } from "../core/env"
 import { Store, type RunStatus } from "../core/store"
@@ -56,9 +56,9 @@ const runAdapters: Record<string, (kind: string) => RunAdapter> = {
         }
       : kind === "parallel.findall"
         ? {
-            check: (id) => parallelApi.findallCheck?.({ run_id: id } as never),
-            cancel: (id) => parallelApi.findallCancel?.({ run_id: id } as never),
-            events: (id) => parallelApi.findallEvents?.({ run_id: id } as never),
+            check: (id) => parallelApi.findallCheck?.({ findall_id: id } as never),
+            cancel: (id) => parallelApi.findallCancel?.(id as never),
+            events: (id) => parallelApi.findallEvents?.({ findall_id: id } as never),
           }
         : {
             check: (id) => parallelApi.taskCheck?.({ run_id: id } as never),
@@ -68,12 +68,17 @@ const runAdapters: Record<string, (kind: string) => RunAdapter> = {
       ? {
           check: (id) => firecrawlApi.extractCheck?.({ id } as never),
         }
-      : kind === "firecrawl.crawl" || kind === "firecrawl.batch"
+      : kind === "firecrawl.batch"
         ? {
-            check: (id) => firecrawlApi.crawlCheck?.({ id } as never),
-            cancel: (id) => firecrawlApi.crawlCancel?.({ id } as never),
+            check: (id) => firecrawlApi.batchCheck?.({ id } as never),
+            cancel: (id) => firecrawlApi.batchCancel?.({ id } as never),
           }
-        : {
+        : kind === "firecrawl.crawl"
+          ? {
+              check: (id) => firecrawlApi.crawlCheck?.({ id } as never),
+              cancel: (id) => firecrawlApi.crawlCancel?.({ id } as never),
+            }
+          : {
             check: (id) => firecrawlApi.agentCheck?.({ id } as never),
             cancel: (id) => firecrawlApi.agentCancel?.({ id } as never),
           },
@@ -83,13 +88,25 @@ const runAdapters: Record<string, (kind: string) => RunAdapter> = {
       : { check: (id) => llamaApi.extractCheck?.({ job_id: id } as never) },
 }
 
-const normalizeStatus = (value: unknown): RunStatus => {
-  const status =
-    typeof value === "string"
-      ? value
-      : value && typeof value === "object" && "status" in value
-        ? String((value as Record<string, unknown>).status)
-        : "unknown"
+/** Status string of a provider check result; llama parse nests it under `job`. */
+const statusOf = (value: unknown): string => {
+  if (typeof value === "string") return value
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    if (record.status !== undefined) {
+      return typeof record.status === "object" && record.status !== null && "status" in record.status
+        ? String((record.status as Record<string, unknown>).status)
+        : String(record.status)
+    }
+    if (record.job && typeof record.job === "object" && "status" in record.job) {
+      return String((record.job as Record<string, unknown>).status)
+    }
+  }
+  return "unknown"
+}
+
+export const normalizeStatus = (value: unknown): RunStatus => {
+  const status = statusOf(value)
   const s = status.toLowerCase()
   if (["completed", "complete", "succeeded", "success", "done", "finished"].includes(s)) return "succeeded"
   if (["failed", "error", "errored"].includes(s)) return "failed"
@@ -196,8 +213,7 @@ export const runsWait = makeJsonCommand({
           }
         }
         if (Date.now() >= deadline) {
-          return yield* Effect.fail({
-            _tag: "JobWaitTimeoutError" as const,
+          return yield* new JobWaitTimeoutError({
             provider: run.provider,
             jobId: run.remote_id,
             timeoutMs,

@@ -3,7 +3,7 @@ import { Effect, FileSystem, Layer, Path, Schema, Stdio, Terminal } from "effect
 import { Command } from "effect/unstable/cli"
 import { FetchHttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { vi } from "vitest"
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:http"
@@ -66,6 +66,7 @@ import { authCommand } from "../src/commands/auth"
 import { capabilitiesCommand, doctorCommand } from "../src/commands/discovery"
 import { listContracts } from "../src/core/discovery"
 import { LOCAL_PROVIDERS, localProviderNames } from "../src/core/registry"
+import { globToRegExp } from "../src/capabilities/ingest"
 import { clearLocalToolCache } from "../src/local/tools"
 import { anydocCommand } from "../src/providers/anydoc"
 import { pdfInspectorCommand } from "../src/providers/pdf-inspector"
@@ -89,6 +90,9 @@ const anydocBinding = {
         pages: [1, 2],
         pageCount: 2,
       })
+    }
+    if (text(bytes).includes("BOOM")) {
+      throw Object.assign(new Error("structurally unusable"), { code: "malformed" })
     }
     return `anydoc[${format ?? "auto"}]: ${text(bytes).replace(/^%PDF-\S*/, "").trim()}`
   },
@@ -286,6 +290,14 @@ const UnusedStore = Layer.succeed(Store, {} as never)
 // In-memory corpus: records puts and versions content by url like the real one.
 const stored: Array<PutDocument> = []
 const InMemoryCorpus = Layer.succeed(Corpus, {
+  get: (ref: { url?: string }) =>
+    Effect.sync(() => {
+      const matches = stored.filter((d) => d.url === ref.url)
+      const latest = matches.at(-1)
+      return latest === undefined
+        ? undefined
+        : { id: stored.indexOf(matches[0]!) + 1, version: matches.length, metadata: latest.metadata ?? null }
+    }),
   put: (doc: PutDocument) =>
     Effect.sync(() => {
       const previous = stored.filter((d) => d.url === doc.url).at(-1)
@@ -1057,6 +1069,138 @@ describe("convert remembers documents in the corpus", () => {
       expect(error.type).toBe("CommandInputError")
       expect(error.message).toContain("did not convert completely")
       expect(stored).toHaveLength(3)
+    }),
+  )
+})
+
+const writeTree = (files: Record<string, string>) => {
+  const dir = mkdtempSync(join(tmpdir(), "survey-tree-"))
+  for (const [name, contents] of Object.entries(files)) {
+    const path = join(dir, name)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, contents)
+  }
+  return dir
+}
+
+describe("directory ingest", () => {
+  it("globToRegExp supports *, **, ?, {a,b} and matches case-insensitively", () => {
+    const ok = (glob: string, path: string) => globToRegExp(glob).test(path)
+    expect(ok("*.pdf", "a.PDF")).toBe(true)
+    expect(ok("*.pdf", "sub/a.pdf")).toBe(false)
+    expect(ok("**/*.pdf", "a.pdf")).toBe(true)
+    expect(ok("**/*.pdf", "x/y/a.pdf")).toBe(true)
+    expect(ok("*.{pdf,docx}", "a.docx")).toBe(true)
+    expect(ok("*.{pdf,docx}", "a.txt")).toBe(false)
+    expect(ok("report-?.md", "report-1.md")).toBe(true)
+    expect(ok("a.b", "aXb")).toBe(false)
+  })
+
+  it.live("convert {dir} converts, stores, then skips unchanged files by hash without converting", () =>
+    Effect.gen(function* () {
+      const dir = writeTree({
+        "a.pdf": "%PDF-1.4 TEXT",
+        "b.docx": "PK b",
+        "notes.txt": "not a document",
+        "sub/d.pdf": "%PDF-1.4 SCAN",
+        ".hidden/e.pdf": "%PDF-1.4 TEXT",
+        "node_modules/x.pdf": "%PDF-1.4 TEXT",
+      })
+      const first = yield* run(["convert", json({ dir, concurrency: 2, tags: ["inbox"] })])
+      expect(first.exitCode).toBe(0)
+      const data = envelope(first).data
+      expect(data).toMatchObject({ matched: 3, processed: 3, stored: 2, needs_ocr: 1, failed: 0, skipped_unchanged: 0 })
+      expect(data.results.map((r: any) => [r.relative, r.status])).toEqual([
+        ["a.pdf", "stored"],
+        ["b.docx", "stored"],
+        ["sub/d.pdf", "needs_ocr"],
+      ])
+      expect(stored.map((d) => d.tags)).toEqual([["inbox"], ["inbox"]])
+      expect(stored[0]!.metadata).toMatchObject({ source_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })
+
+      const extractsBefore = calls.extract
+      const second = envelope(yield* run(["convert", json({ dir })])).data
+      expect(second).toMatchObject({ skipped_unchanged: 2, needs_ocr: 1, stored: 0 })
+      expect(calls.extract).toBe(extractsBefore) // unchanged files were not even classified
+      expect(stored).toHaveLength(2)
+
+      writeFileSync(join(dir, "a.pdf"), "%PDF-1.4 TEXT edited")
+      const third = envelope(yield* run(["convert", json({ dir })])).data
+      expect(third.results.map((r: any) => [r.relative, r.status])).toEqual([
+        ["a.pdf", "unchanged"], // stub extraction ignores the edit, so the stored text is identical
+        ["b.docx", "skipped_unchanged"],
+        ["sub/d.pdf", "needs_ocr"],
+      ])
+
+      const forced = envelope(yield* run(["convert", json({ dir, force: true })])).data
+      expect(forced.skipped_unchanged).toBe(0)
+    }),
+  )
+
+  it.live("recursive:false, glob, max_files and dry_run", () =>
+    Effect.gen(function* () {
+      const dir = writeTree({ "a.pdf": "%PDF-1.4 TEXT", "b.docx": "PK b", "sub/c.docx": "PK c" })
+
+      const flat = envelope(yield* run(["convert", json({ dir, recursive: false, dry_run: true })])).data
+      expect(flat.results.map((r: any) => [r.relative, r.status])).toEqual([
+        ["a.pdf", "would_process"],
+        ["b.docx", "would_process"],
+      ])
+      expect(stored).toHaveLength(0)
+
+      const onlyDocx = envelope(yield* run(["convert", json({ dir, glob: "**/*.docx" })])).data
+      expect(onlyDocx.results.map((r: any) => r.relative)).toEqual(["b.docx", "sub/c.docx"])
+
+      const capped = envelope(yield* run(["convert", json({ dir, max_files: 1, glob: "**/*.docx" })])).data
+      expect(capped).toMatchObject({ matched: 2, processed: 1, truncated: true })
+
+      const preview = envelope(yield* run(["convert", json({ dir, glob: "**/*.docx", dry_run: true })])).data
+      expect(preview.results.map((r: any) => r.status)).toEqual(["would_skip_unchanged", "would_skip_unchanged"])
+    }),
+  )
+
+  it.live("per-file failures do not stop the run and set a failing exit code", () =>
+    Effect.gen(function* () {
+      const dir = writeTree({ "good.docx": "PK ok", "bad.docx": "PK BOOM" })
+      const result = yield* run(["convert", json({ dir })])
+      expect(result.exitCode).toBe(1)
+      const data = envelope(result).data
+      expect(data).toMatchObject({ stored: 1, failed: 1 })
+      const bad = data.results.find((r: any) => r.relative === "bad.docx")
+      expect(bad.status).toBe("failed")
+      expect(bad.error).toMatchObject({ type: "LocalToolError", details: { code: "malformed" } })
+    }),
+  )
+
+  it.live("rejects a missing directory and non-positive limits", () =>
+    Effect.gen(function* () {
+      const missing = envelope(yield* run(["convert", json({ dir: join(docsDir, "nope") })]))
+      expect(missing.error.type).toBe("CommandInputError")
+      expect(missing.error.message).toContain("is not a directory")
+      const dir = writeTree({ "a.docx": "PK" })
+      const bad = envelope(yield* run(["convert", json({ dir, concurrency: 0 })]))
+      expect(bad.error.details.field).toBe("concurrency")
+    }),
+  )
+
+  it.live("corpus add {dir} converts documents, stores text, and skips unchanged on re-run", () =>
+    Effect.gen(function* () {
+      const dir = writeTree({
+        "paper.pdf": "%PDF-1.4 TEXT",
+        "scan.pdf": "%PDF-1.4 SCAN",
+        "notes.md": "# notes",
+        "ignore.json": "{}",
+      })
+      const first = envelope(yield* run(["corpus", "add", json({ dir, tags: ["lib"], metadata: { batch: 1 } })])).data.results[0].data
+      expect(first).toMatchObject({ matched: 3, stored: 2, needs_ocr: 1, failed: 0 })
+      const byUrl = Object.fromEntries(stored.map((d) => [d.url.split("/").pop(), d]))
+      expect(byUrl["paper.pdf"]).toMatchObject({ kind: "document", provider: "pdf-inspector", tags: ["lib"] })
+      expect(byUrl["notes.md"]).toMatchObject({ kind: "file", provider: "local", content: "# notes", tags: ["lib"] })
+      expect(byUrl["notes.md"]!.metadata).toMatchObject({ batch: 1, source_sha256: expect.any(String) })
+
+      const again = envelope(yield* run(["corpus", "add", json({ dir })])).data.results[0].data
+      expect(again).toMatchObject({ skipped_unchanged: 2, needs_ocr: 1, stored: 0 })
+      expect(stored).toHaveLength(2)
     }),
   )
 })
