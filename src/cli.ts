@@ -11,6 +11,7 @@ import {
   examplesCommand,
   schemaCommand,
 } from "./commands/discovery"
+import { corpusCommand } from "./capabilities/corpus"
 import { extractCommand } from "./capabilities/extract"
 import { fetchCommand } from "./capabilities/fetch"
 import { monitorCommand } from "./capabilities/monitor"
@@ -21,6 +22,7 @@ import { sourcesCommand } from "./capabilities/sources"
 import { sqlCommand } from "./capabilities/sql"
 import { verifyCommand } from "./capabilities/verify"
 import { CLI_NAME, CLI_VERSION } from "./core/constants"
+import { Corpus } from "./core/corpus"
 import { HttpClientLayer } from "./core/http"
 import { setExitCode, writeCauseEnvelope, writeFailureEnvelope } from "./core/output"
 import { Store } from "./core/store"
@@ -52,6 +54,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     sourcesCommand,
     monitorCommand,
     sqlCommand,
+    corpusCommand,
   ]),
 )
 
@@ -59,6 +62,7 @@ const runtimeLayer = Layer.mergeAll(
   BunServices.layer,
   HttpClientLayer,
   Store.layer.pipe(Layer.provide(BunServices.layer)),
+  Corpus.layer.pipe(Layer.provide(BunServices.layer)),
 )
 
 const program = rootCommand.pipe(

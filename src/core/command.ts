@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { Argument, Command, Flag } from "effect/unstable/cli"
 
 import type { OutputPolicy } from "./artifacts"
@@ -47,6 +47,8 @@ export interface JsonCommandOptions<S extends Schema.Constraint, E, R> {
   readonly description: string
   readonly schema: S
   readonly run: (input: S["Type"]) => Effect.Effect<unknown, E, R>
+  /** Allow omitting the JSON argument; it then defaults to `{}`. */
+  readonly optionalInput?: boolean
   readonly contract?: {
     readonly examples?: ReadonlyArray<{ name: string; description?: string; input: unknown }>
     readonly output?: string
@@ -83,11 +85,17 @@ export const makeJsonCommand = <S extends Schema.Constraint, E, R>(
 ) =>
   Command.make(
     options.name,
-    { input: jsonInputArg, output: outputFlag },
+    { input: optionalJsonInputArg, output: outputFlag },
     ({ input, output }) =>
       executeJsonCommand(
         options.commandName,
-        loadJsonInput(options.schema, input).pipe(
+        Option.match(input, {
+          onNone: () =>
+            options.optionalInput === true
+              ? loadJsonInput(options.schema, "{}")
+              : loadJsonInput(options.schema, ""),
+          onSome: (text) => loadJsonInput(options.schema, text),
+        }).pipe(
           Effect.flatMap(options.run),
           Effect.flatMap((data) =>
             applyOutputPolicy({
