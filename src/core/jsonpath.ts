@@ -31,7 +31,7 @@ const parseSegments = (path: string): Array<Segment> => {
       const body = bracket[1]!.trim()
       if (body === "*") {
         segments.push({ kind: "wildcard" })
-      } else if (/^-?\d*:-?\d*$/.test(body)) {
+      } else if (/^(-?\d+)?:(-?\d+)?$/.test(body)) {
         const [start, end] = body.split(":")
         segments.push({
           kind: "slice",
@@ -96,8 +96,15 @@ export interface Scope {
 }
 
 const REF = /^\$(item|index)?((?:\.[A-Za-z0-9_\-]+|\[[^\]]*\])*)$/
+/** Root references start with a step id or `vars`, so `$.50` or `$5` stay literal text. */
+const ROOT_HEAD = /^\$\.[A-Za-z_]/
 
-export const isReference = (value: string) => REF.test(value.trim()) && value.trim() !== "$"
+export const isReference = (value: string) => {
+  const trimmed = value.trim()
+  const match = REF.exec(trimmed)
+  if (match === null || trimmed === "$") return false
+  return match[1] !== undefined || ROOT_HEAD.test(trimmed)
+}
 
 export const resolveReference = (ref: string, scope: Scope): unknown => {
   const match = REF.exec(ref.trim())
@@ -113,8 +120,10 @@ export const resolveValue = (value: unknown, scope: Scope): unknown => {
   if (typeof value === "string") {
     if (value.startsWith("$$")) return value.slice(1)
     if (value.startsWith("$") && isReference(value)) return resolveReference(value, scope)
+    // `{{ not a reference }}` (e.g. a prompt template) passes through untouched.
     if (value.includes("{{")) {
-      return value.replace(TEMPLATE, (_whole, ref: string) => {
+      return value.replace(TEMPLATE, (whole, ref: string) => {
+        if (!isReference(ref)) return whole
         const resolved = resolveReference(ref, scope)
         return resolved === undefined || resolved === null
           ? ""

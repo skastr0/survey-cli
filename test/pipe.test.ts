@@ -33,6 +33,14 @@ describe("jsonpath", () => {
     expect(value).toEqual({ url: "u", label: "effect #2", literal: "$.not.a.ref", list: ["u"] })
   })
 
+  it("keeps literal dollars, non-reference templates, and rejects malformed slices", () => {
+    expect(resolveValue("$.50", { root })).toBe("$.50")
+    expect(resolveValue("$5", { root })).toBe("$5")
+    expect(resolveValue("Hello {{ name }} — {{ $.vars.topic }}", { root })).toBe("Hello {{ name }} — effect")
+    expect(() => resolveReference("$.s.data.results[-:]", { root })).toThrow()
+    expect(resolveReference("$.s.data.results[1:]", { root })).toHaveLength(2)
+  })
+
   it("leaves ordinary strings that merely contain $ alone", () => {
     expect(resolveValue("costs $5 per call", { root })).toBe("costs $5 per call")
   })
