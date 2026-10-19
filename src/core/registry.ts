@@ -10,6 +10,7 @@ export const ProviderName = Schema.Literals([
   "parallel",
   "keenable",
   "llama",
+  "tinyfish",
 ])
 export type ProviderName = typeof ProviderName.Type
 
@@ -30,6 +31,7 @@ export const Capability = Schema.Literals([
   "code_context",
   "entity_search",
   "files",
+  "browser",
 ])
 export type Capability = typeof Capability.Type
 
@@ -124,6 +126,17 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     keyHint: "Export LLAMA_CLOUD_API_KEY from https://cloud.llamaindex.ai.",
     auth: { kind: "bearer" },
     capabilities: ["files", "parse", "extract"],
+    publicFallback: false,
+  },
+  tinyfish: {
+    name: "tinyfish",
+    envVar: "TINYFISH_API_KEY",
+    baseUrlEnv: "TINYFISH_API_BASE_URL",
+    defaultBaseUrl: "https://agent.tinyfish.ai",
+    keyHint:
+      "Export TINYFISH_API_KEY from https://agent.tinyfish.ai/api-keys. Search and Fetch have a free daily allowance but still require a key.",
+    auth: { kind: "header", header: "x-api-key" },
+    capabilities: ["search", "fetch", "browser", "interact", "deep_research", "monitor"],
     publicFallback: false,
   },
 }
