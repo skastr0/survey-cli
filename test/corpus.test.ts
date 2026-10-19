@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 
 ;(globalThis as { Bun?: unknown }).Bun ??= { env: process.env }
 
-import { corpusDiff, corpusGrep, corpusRead, corpusSearch } from "../src/capabilities/corpus"
+import { corpusDiff, corpusGrep, corpusRead, corpusSearch, locateLines, queryTerms } from "../src/capabilities/corpus"
 import { Corpus, type DocumentRecord, documentKey, hashContent, toFtsQuery } from "../src/core/corpus"
 import { diffLines } from "../src/core/diff"
 
@@ -35,7 +35,9 @@ const stubCorpus = (docs: ReadonlyArray<DocumentRecord>, versions: Record<string
     versionContent: (id, version) => Effect.succeed(versions[`${id}:${version}`]),
     search: (options) => {
       searched.push(options.query)
-      return Effect.succeed([])
+      return Effect.succeed(
+        docs.slice(0, 1).map(({ content: _content, ...rest }) => ({ ...rest, score: -1, snippet: "…" })),
+      )
     },
     list: () => Effect.succeed([]),
     scan: (options) =>
@@ -151,4 +153,24 @@ describe("corpus commands", () => {
       Effect.provide(stubCorpus([doc(3, "note://w", "v2", 2)], { "3:1": "v1" }).layer),
     ),
   )
+
+  it.effect("search hits carry best-matching line numbers", () =>
+    Effect.gen(function* () {
+      const result = yield* corpusSearch({ query: "rate limits" })
+      expect(result.hits[0]).toMatchObject({ id: 1, lines: [{ line: 2, text: "Rate limit: 100 rpm" }] })
+      const none = yield* corpusSearch({ query: "rate", max_lines: 0 })
+      expect("lines" in none.hits[0]!).toBe(false)
+    }).pipe(Effect.provide(stubCorpus(docs).layer)),
+  )
+})
+
+describe("locateLines", () => {
+  it("ranks lines by matched terms and returns them in document order", () => {
+    const content = "intro\nfusion only\nreciprocal rank fusion here\nrank again\nend"
+    expect(locateLines(content, queryTerms("Reciprocal Rank Fusion"), 2)).toEqual([
+      { line: 2, text: "fusion only" },
+      { line: 3, text: "reciprocal rank fusion here" },
+    ])
+    expect(queryTerms('"deep research" OR NEAR(agents)')).toEqual(["deep", "research", "agents"])
+  })
 })

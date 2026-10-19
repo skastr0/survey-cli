@@ -38,6 +38,7 @@ export const CorpusSearchInput = Schema.Struct({
   limit: Schema.optional(Schema.Int),
   syntax: Schema.optional(Schema.Literals(["terms", "fts"])),
   snippet_tokens: Schema.optional(Schema.Int),
+  max_lines: Schema.optional(Schema.Int),
   ...FilterFields,
 })
 
@@ -180,8 +181,44 @@ export const corpusSearch = (input: typeof CorpusSearchInput.Type) =>
       filter: filterOf(input),
       snippetTokens: input.snippet_tokens,
     })
-    return { query, hits, count: hits.length }
+    const maxLines = input.max_lines ?? 3
+    if (maxLines <= 0 || hits.length === 0) return { query, hits, count: hits.length }
+    const terms = queryTerms(input.query)
+    const located = yield* Effect.forEach(hits, (hit) =>
+      corpus.get({ id: hit.id }).pipe(
+        Effect.map((doc) => ({ ...hit, lines: doc === undefined ? [] : locateLines(doc.content, terms, maxLines) })),
+      ),
+    )
+    return { query, hits: located, count: located.length }
   })
+
+/** Lowercased word terms from a query, minus FTS operators and syntax. */
+export const queryTerms = (query: string) =>
+  [...new Set(
+    (query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).filter(
+      (term) => !["and", "or", "not", "near"].includes(term),
+    ),
+  )]
+
+/**
+ * Lines containing the most query terms (prefix match approximates the
+ * porter stemmer), so a hit says where to `corpus read {lines}` next.
+ */
+export const locateLines = (content: string, terms: ReadonlyArray<string>, max: number) => {
+  if (terms.length === 0) return []
+  const stems = terms.map((term) => (term.length > 4 ? term.slice(0, Math.max(4, term.length - 2)) : term))
+  const scored: Array<{ line: number; text: string; score: number }> = []
+  content.split("\n").forEach((text, index) => {
+    const lower = text.toLowerCase()
+    const score = stems.filter((stem) => lower.includes(stem)).length
+    if (score > 0) scored.push({ line: index + 1, text: text.length > 300 ? `${text.slice(0, 300)}…` : text, score })
+  })
+  return scored
+    .sort((a, b) => b.score - a.score || a.line - b.line)
+    .slice(0, max)
+    .sort((a, b) => a.line - b.line)
+    .map(({ line, text }) => ({ line, text }))
+}
 
 const parseLineRange = (spec: string) =>
   Effect.gen(function* () {
@@ -340,7 +377,7 @@ const corpusSearchCommand = makeJsonCommand({
   name: "search",
   commandName: "corpus search",
   description:
-    "BM25 full-text search (SQLite FTS5) over every document in the local corpus, with highlighted snippets. syntax=terms (default) quotes each term; syntax=fts passes raw FTS5 (NEAR, prefix*, column:).",
+    "BM25 full-text search (SQLite FTS5) over every document in the local corpus, with highlighted snippets and the best-matching line numbers per hit (max_lines, default 3; feed them to corpus read). syntax=terms (default) quotes each term; syntax=fts passes raw FTS5 (NEAR, prefix*, column:).",
   schema: CorpusSearchInput,
   run: corpusSearch,
 })
