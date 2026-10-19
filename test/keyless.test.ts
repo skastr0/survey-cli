@@ -524,6 +524,29 @@ describe("parallel keyless MCP", () => {
     )
   })
 
+  it("search without a key trims to max_results (web_search returns 10)", async () => {
+    await withStub(
+      {
+        "/parallel-mcp": mcpHandler({
+          call: () => ({
+            content: [],
+            structuredContent: {
+              search_id: "search_1",
+              session_id: "srv",
+              results: Array.from({ length: 10 }, (_, i) => ({ url: `https://example.com/${i}`, title: `r${i}`, excerpts: ["x"] })),
+            },
+          }),
+        }),
+      },
+      {},
+      async () => {
+        const result = await run(parallelApi.search({ objective: "fts5", max_results: 3 }))
+        expect(result.results.map((r) => r.url)).toEqual(["https://example.com/0", "https://example.com/1", "https://example.com/2"])
+        expect(result.ignored_options).not.toContain("max_results")
+      },
+    )
+  })
+
   it("extract without a key uses web_fetch", async () => {
     await withStub(
       {
