@@ -262,11 +262,20 @@ export const extract = (input: ExtractInput) =>
     return { ...response, auth_mode: "keyed" as const }
   })
 
+/**
+ * Auto output schemas are deep-research only: live POST /v1/tasks/runs with
+ * processor "base" and {type:"auto"} answers 400 "Auto schema is not supported
+ * for processor base" (2026-10-19). Other processors fall back to text.
+ */
+const supportsAutoSchema = (processor: string) => /^(pro|ultra)/.test(processor)
+
 export const createTaskRun = (
   input: DeepResearchInput,
   defaultOutput: "auto" | "text",
-) =>
-  requestJson({
+) => {
+  const processor = input.processor?.trim() || "base"
+  const output = defaultOutput === "auto" && !supportsAutoSchema(processor) ? "text" : defaultOutput
+  return requestJson({
     provider: "parallel",
     method: "POST",
     path: "/v1/tasks/runs",
@@ -275,9 +284,9 @@ export const createTaskRun = (
       : {}),
     body: omitUndefined({
       input: input.input,
-      processor: input.processor?.trim() || "base",
+      processor,
       task_spec: {
-        output_schema: input.output_schema ?? { type: defaultOutput },
+        output_schema: input.output_schema ?? { type: output },
         ...(input.input_schema ? { input_schema: input.input_schema } : {}),
       },
       metadata: input.metadata,
@@ -295,6 +304,7 @@ export const createTaskRun = (
     }),
     responseSchema: TaskRun,
   })
+}
 
 export const getTaskRun = (runId: string) =>
   requestJson({
