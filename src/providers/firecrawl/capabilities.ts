@@ -24,6 +24,13 @@ const JOB_ORBIT = ["check", "inspect", "wait", "errors", "cancel", "events"] as 
 const AGENT_ORBIT = ["check", "inspect", "wait", "cancel", "events", "list"] as const
 const EXTRACT_ORBIT = ["check", "inspect", "wait"] as const
 
+// Placeholder job ids for orbit examples; Firecrawl job ids are UUIDs.
+const BATCH_ID = "11111111-1111-1111-1111-111111111111"
+const CRAWL_ID = "22222222-2222-2222-2222-222222222222"
+const AGENT_ID = "33333333-3333-3333-3333-333333333333"
+const EXTRACT_ID = "44444444-4444-4444-4444-444444444444"
+const SCRAPE_ID = "55555555-5555-5555-5555-555555555555"
+
 registerContracts([
   {
     command: "firecrawl scrape",
@@ -154,16 +161,30 @@ registerContracts([
     command: "firecrawl batch run",
     description: "Alias for firecrawl batch start.",
     inputSchema: BatchStartInputSchema,
+    examples: [
+      {
+        name: "provider batch scrape",
+        input: { urls: ["https://example.com/a", "https://example.com/b"], formats: ["markdown"] },
+      },
+    ],
   },
   {
     command: "firecrawl batch check",
     description: "Inspect a Firecrawl batch scrape job or next page URL.",
     inputSchema: JobCheckInputSchema,
+    examples: [
+      { name: "check batch", input: { id: BATCH_ID } },
+      {
+        name: "next results page",
+        input: { id: BATCH_ID, next_url: `https://api.firecrawl.dev/v2/batch/scrape/${BATCH_ID}?skip=10` },
+      },
+    ],
   },
   {
     command: "firecrawl batch inspect",
     description: "Alias for firecrawl batch check with the same input contract.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "inspect batch", input: { id: BATCH_ID } }],
   },
   {
     command: "firecrawl batch wait",
@@ -180,17 +201,20 @@ registerContracts([
     command: "firecrawl batch errors",
     description: "Fetch Firecrawl batch scrape job errors.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "batch errors", input: { id: BATCH_ID } }],
   },
   {
     command: "firecrawl batch cancel",
     description: "Cancel a Firecrawl batch scrape job.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "cancel batch", input: { id: BATCH_ID } }],
   },
   {
     command: "firecrawl batch events",
     description:
       "Report Firecrawl batch event stream support. No provider event stream exists; returns supported:false with polling alternatives.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "batch event support", input: { id: BATCH_ID } }],
   },
   {
     command: "firecrawl crawl start",
@@ -213,37 +237,54 @@ registerContracts([
     command: "firecrawl crawl run",
     description: "Alias for firecrawl crawl start.",
     inputSchema: CrawlStartInputSchema,
+    examples: [
+      { name: "crawl docs", input: { url: "https://example.com/docs", limit: 25, sitemap: "include" } },
+    ],
   },
   {
     command: "firecrawl crawl check",
     description: "Inspect a Firecrawl crawl job or next page URL.",
     inputSchema: JobCheckInputSchema,
+    examples: [
+      { name: "check crawl", input: { id: CRAWL_ID } },
+      {
+        name: "next results page",
+        input: { id: CRAWL_ID, next_url: `https://api.firecrawl.dev/v2/crawl/${CRAWL_ID}?skip=10` },
+      },
+    ],
   },
   {
     command: "firecrawl crawl inspect",
     description: "Alias for firecrawl crawl check with the same input contract.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "inspect crawl", input: { id: CRAWL_ID } }],
   },
   {
     command: "firecrawl crawl wait",
     description: "Poll a Firecrawl crawl job until it reaches a terminal state.",
     inputSchema: WaitInputSchema,
+    examples: [
+      { name: "wait for crawl", input: { id: CRAWL_ID, poll_interval_ms: 5000, timeout_ms: 600000 } },
+    ],
   },
   {
     command: "firecrawl crawl errors",
     description: "Fetch Firecrawl crawl job errors.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "crawl errors", input: { id: CRAWL_ID } }],
   },
   {
     command: "firecrawl crawl cancel",
     description: "Cancel a Firecrawl crawl job.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "cancel crawl", input: { id: CRAWL_ID } }],
   },
   {
     command: "firecrawl crawl events",
     description:
       "Report Firecrawl crawl event stream support. Realtime updates exist only via SDK/WebSocket watchers; returns supported:false with polling alternatives.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "crawl event support", input: { id: CRAWL_ID } }],
   },
   {
     command: "firecrawl agent start",
@@ -282,16 +323,19 @@ registerContracts([
     command: "firecrawl agent run",
     description: "Alias for firecrawl agent start.",
     inputSchema: AgentStartInputSchema,
+    examples: [{ name: "prompt-only agent", input: { prompt: "Find the founders of Firecrawl", max_credits: 100 } }],
   },
   {
     command: "firecrawl agent check",
     description: "Inspect a Firecrawl agent job.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "check agent", input: { id: AGENT_ID } }],
   },
   {
     command: "firecrawl agent inspect",
     description: "Alias for firecrawl agent check.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "inspect agent", input: { id: AGENT_ID } }],
   },
   {
     command: "firecrawl agent wait",
@@ -312,17 +356,23 @@ registerContracts([
     command: "firecrawl agent cancel",
     description: "Cancel a Firecrawl agent job.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "cancel agent", input: { id: AGENT_ID } }],
   },
   {
     command: "firecrawl agent events",
     description:
       "Fetch the agent execution trace snapshot (GET /agent/{id}/trace REST snapshot, not an SSE stream).",
     inputSchema: AgentEventsInputSchema,
+    examples: [
+      { name: "agent trace", input: { id: AGENT_ID } },
+      { name: "agent trace with live view", input: { id: AGENT_ID, live_view: true } },
+    ],
   },
   {
     command: "firecrawl agent list",
     description: "List recent agent runs. Pages are fixed at 20; pass before from the previous next URL.",
     inputSchema: AgentListInputSchema,
+    examples: [{ name: "latest agent runs", input: {} }],
   },
   {
     command: "firecrawl extract start",
@@ -349,22 +399,37 @@ registerContracts([
     command: "firecrawl extract run",
     description: "Alias for firecrawl extract start.",
     inputSchema: ExtractStartInputSchema,
+    examples: [
+      {
+        name: "extract from known URLs",
+        input: {
+          urls: ["https://docs.firecrawl.dev"],
+          prompt: "Extract the page title",
+          schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+        },
+      },
+    ],
   },
   {
     command: "firecrawl extract check",
     description: "Inspect a Firecrawl extract job.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "check extract", input: { id: EXTRACT_ID } }],
   },
   {
     command: "firecrawl extract inspect",
     description: "Alias for firecrawl extract check.",
     inputSchema: JobCheckInputSchema,
+    examples: [{ name: "inspect extract", input: { id: EXTRACT_ID } }],
   },
   {
     command: "firecrawl extract wait",
     description:
       "Poll a Firecrawl extract job until it reaches a terminal state. No cancel or events endpoint exists for extract.",
     inputSchema: WaitInputSchema,
+    examples: [
+      { name: "wait for extract", input: { id: EXTRACT_ID, poll_interval_ms: 2000, timeout_ms: 300000 } },
+    ],
   },
   {
     command: "firecrawl interact execute",
@@ -395,6 +460,7 @@ registerContracts([
     command: "firecrawl interact stop",
     description: "Stop the interactive browser session bound to a scrape job.",
     inputSchema: JobIdInputSchema,
+    examples: [{ name: "stop browser session", input: { id: SCRAPE_ID } }],
   },
   {
     command: "firecrawl research search-papers",
