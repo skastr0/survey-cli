@@ -112,4 +112,20 @@ describe("MCP handler", () => {
     expect(await handle({ jsonrpc: "2.0", id: 7, method: "resources/list" })).toMatchObject({ error: { code: -32601 } })
     expect(await handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeUndefined()
   })
+
+  it("never answers or executes notifications", async () => {
+    const before = calls.length
+    expect(await handle({ jsonrpc: "2.0", method: "tools/list" })).toBeUndefined()
+    expect(await handle({ jsonrpc: "2.0", method: "initialize", params: {} })).toBeUndefined()
+    expect(
+      await handle({ jsonrpc: "2.0", method: "tools/call", params: { name: "corpus_stats", arguments: {} } }),
+    ).toBeUndefined()
+    expect(calls.length).toBe(before)
+  })
+
+  it("rejects non-object messages and ignores responses", async () => {
+    expect(await handle(null)).toEqual({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } })
+    expect(await handle([{ jsonrpc: "2.0", id: 1, method: "ping" }])).toMatchObject({ error: { code: -32600 } })
+    expect(await handle({ jsonrpc: "2.0", id: 1, result: {} })).toBeUndefined()
+  })
 })
