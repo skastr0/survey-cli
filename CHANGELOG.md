@@ -48,13 +48,20 @@ but never tagged or published.
   `next_step` per missing key. `schema show` adds input mode, required fields,
   flags, output, lifecycle, and example names. Artifact records carry
   `created_at` and a read-back `next_step`.
+- Every provider and capability contract documents its `output` (the shape of
+  `data`) and says what it does, its key inputs, and what it returns; MCP tool
+  descriptions include the output shape.
+- `NotFoundError` for well-formed requests naming something absent, and
+  `capabilities.errors.types` catalogs every error type.
 
 ### Changed
 
 - Unified search fuses results with Reciprocal Rank Fusion and reports
   per-provider `ranks`; raw cross-provider scores are no longer compared.
 - `capabilities` no longer claims `--timeout`, `--wait`, and
-  `--idempotency-key` are global; see `commands[].flags`.
+  `--idempotency-key` are global. By default it prints one line per command
+  (summary, input mode, flags); `{"detail":"full"}` and
+  `{"command":"<prefix or glob>"}` return full rows.
 - Schema mismatches are `JsonInputError` with `reason: "InvalidShape"` and
   `details.issues[{path, message}]`; unparseable text keeps
   `reason: "InvalidJson"` with the parser's message. Every failure carries
