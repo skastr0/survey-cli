@@ -6,7 +6,8 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
-import { loadProviderConfig, ProviderName } from "../core/registry"
+import { ProviderName } from "../core/registry"
+import { providerAccess } from "../core/tiers"
 import { firecrawlApi } from "../providers/firecrawl"
 import { llamaApi } from "../providers/llama"
 import { parallelApi } from "../providers/parallel"
@@ -75,8 +76,9 @@ export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
     })
   }
 
-  const config = yield* loadProviderConfig(route.provider)
-  if (config.credential === undefined) {
+  // Parallel's extract route is its URL extract (fetch capability), which runs keyless.
+  const access = yield* providerAccess(route.provider, route.provider === "parallel" ? "fetch" : "extract")
+  if (!access.available) {
     return yield* Effect.fail({
       _tag: "MissingApiKeyError" as const,
       provider: route.provider,

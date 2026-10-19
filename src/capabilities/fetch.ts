@@ -6,21 +6,27 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
-import { loadProviderConfig, ProviderName } from "../core/registry"
+import { ProviderName } from "../core/registry"
+import { routeProviders, Tier, withTier } from "../core/tiers"
 import { exaApi } from "../providers/exa"
 import { firecrawlApi } from "../providers/firecrawl"
 import { keenableApi } from "../providers/keenable"
+import { parallelApi } from "../providers/parallel"
 
-const DEFAULT_ORDER = ["firecrawl", "keenable", "exa"] as const
+const DEFAULT_ORDER: ReadonlyArray<ProviderName> = ["firecrawl", "keenable", "exa", "parallel"]
 
 export const UnifiedFetchInput = Schema.Struct({
   url: Schema.NonEmptyString,
   format: Schema.optional(Schema.Literals(["markdown", "text", "html", "auto"])),
   timeout_ms: Schema.optional(Schema.Int),
   providers: Schema.optional(Schema.Array(ProviderName)),
+  tier: Schema.optional(Tier.annotate({
+    description: "free: only keyless/local access (no account credits). any (default): keyed where configured.",
+  })),
   firecrawl: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   keenable: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   exa: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  parallel: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 export type UnifiedFetchInput = typeof UnifiedFetchInput.Type
 
@@ -38,12 +44,18 @@ const extractContent = (payload: unknown): { content?: string; raw: unknown } =>
       return { content: value, raw: payload }
     }
   }
-  // exa contents returns { results: [{ text, ... }] }
+  // exa contents: { results: [{ text }] }; parallel extract: { results: [{ full_content, excerpts }] }
   const results = Array.isArray(candidate.results) ? candidate.results : record.results
   if (Array.isArray(results)) {
     const first = results[0] as Record<string, unknown> | undefined
     if (first && typeof first.text === "string") {
       return { content: first.text, raw: payload }
+    }
+    if (first && typeof first.full_content === "string" && first.full_content.length > 0) {
+      return { content: first.full_content, raw: payload }
+    }
+    if (first && Array.isArray(first.excerpts) && first.excerpts.length > 0) {
+      return { content: first.excerpts.filter((e) => typeof e === "string").join("\n\n"), raw: payload }
     }
   }
   return { raw: payload }
@@ -61,7 +73,9 @@ const tryProvider = (
           ? (input.keenable ?? {})
           : provider === "exa"
             ? (input.exa ?? {})
-            : {}
+            : provider === "parallel"
+              ? (input.parallel ?? {})
+              : {}
     if (provider === "firecrawl") {
       const format = input.format ?? "markdown"
       const payload = yield* firecrawlApi.scrape({
@@ -79,6 +93,10 @@ const tryProvider = (
       const payload = yield* exaApi.contents({ url: input.url, ...overrides } as never)
       return { payload, ...extractContent(payload) }
     }
+    if (provider === "parallel") {
+      const payload = yield* parallelApi.extract({ urls: [input.url], ...overrides } as never)
+      return { payload, ...extractContent(payload) }
+    }
     return yield* Effect.fail({
       _tag: "ProviderUnsupportedError" as const,
       provider,
@@ -91,23 +109,20 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
   input: UnifiedFetchInput,
 ) {
   const order = input.providers ?? DEFAULT_ORDER
+  const { eligible, skipped } = yield* routeProviders({
+    requested: order,
+    adapters: DEFAULT_ORDER,
+    capability: "fetch",
+    tier: input.tier,
+  })
 
-  const attempted: Array<{ provider: string; ok: boolean; error?: unknown }> = []
-  for (const provider of order) {
-    if (!["firecrawl", "keenable", "exa"].includes(provider)) {
-      attempted.push({ provider, ok: false, error: "provider does not support fetch" })
-      continue
-    }
-    const config = yield* loadProviderConfig(provider)
-    if (config.credential === undefined && provider !== "keenable") {
-      attempted.push({ provider, ok: false, error: "no API key configured" })
-      continue
-    }
-
+  const attempted: Array<{ provider: string; ok: boolean; mode?: string; error?: unknown }> =
+    skipped.map(({ provider, reason }) => ({ provider, ok: false, error: reason }))
+  for (const { provider, access } of eligible) {
     const timed = input.timeout_ms
       ? tryProvider(provider, input).pipe(Effect.timeout(input.timeout_ms))
       : tryProvider(provider, input)
-    const outcome = yield* Effect.result(timed)
+    const outcome = yield* Effect.result(timed.pipe(withTier(input.tier)))
 
     if (outcome._tag === "Success") {
       const value = outcome.success as { payload: unknown; content?: string }
@@ -115,9 +130,11 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
       return {
         url: input.url,
         provider,
+        mode: access.mode,
+        cost: access.cost,
         content: value.content ?? null,
         raw: value.payload,
-        attempted: [...attempted, { provider, ok: true }],
+        attempted: [...attempted, { provider, ok: true, mode: access.mode }],
       }
     }
 
@@ -125,6 +142,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
     attempted.push({
       provider,
       ok: false,
+      mode: access.mode,
       error: failure && typeof failure === "object" && "_tag" in failure
         ? toErrorDetails(failure)
         : { type: "TimeoutError", message: `timed out after ${input.timeout_ms}ms` },
@@ -145,7 +163,7 @@ export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
 export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
-  description: "Fetch a URL with provider fallback (firecrawl → keenable → exa)",
+  description: "Fetch a URL with provider fallback (firecrawl → keenable → exa → parallel); keyless where no key is configured",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
@@ -159,6 +177,10 @@ registerContract({
     {
       name: "keenable first",
       input: { url: "https://example.com", providers: ["keenable", "exa"] },
+    },
+    {
+      name: "free tier only",
+      input: { url: "https://example.com", tier: "free" },
     },
   ],
 })

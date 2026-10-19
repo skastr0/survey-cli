@@ -82,25 +82,6 @@ export const providerAccess = Effect.fn("providerAccess")(function* (
   return resolveAccess(provider, capability, config.credential !== undefined)
 })
 
-/** Every provider × listed capability, resolved against the live config. */
-export const accessMatrix = Effect.gen(function* () {
-  return yield* Effect.forEach(providerNames, (provider) =>
-    Effect.gen(function* () {
-      const config = yield* loadProviderConfig(provider)
-      const keyed = config.credential !== undefined
-      return {
-        provider,
-        capabilities: Object.fromEntries(
-          PROVIDERS[provider].capabilities.map((capability) => [
-            capability,
-            resolveAccess(provider, capability, keyed),
-          ]),
-        ) as Record<string, Access>,
-      }
-    }),
-  )
-})
-
 /** Static view for `capabilities`: which access modes each capability can use. */
 export const tierTable = () =>
   providerNames.map((provider) => {

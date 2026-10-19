@@ -7,6 +7,7 @@ import { CommandInputError } from "../core/errors"
 import { executeJsonCommand } from "../core/output"
 import { artifactDir, storePath, surveyHome } from "../core/paths"
 import { loadProviderConfig, PROVIDERS, providerNames } from "../core/registry"
+import { resolveAccess, tierTable, TIER_RULES } from "../core/tiers"
 
 export const doctorCommand = Command.make(
   "doctor",
@@ -23,13 +24,23 @@ export const doctorCommand = Command.make(
           Effect.gen(function* () {
             const config = yield* loadProviderConfig(name)
             const spec = PROVIDERS[name]
+            const keyed = config.credential !== undefined
             return {
               provider: name,
-              configured: config.credential !== undefined,
+              configured: keyed,
               api_base_url: config.apiBaseUrl,
               public_fallback: spec.publicFallback,
+              access: Object.fromEntries(
+                spec.capabilities.map((capability) => [capability, resolveAccess(name, capability, keyed)]),
+              ),
             }
           }),
+        )
+
+        const free = providers.flatMap((p) =>
+          Object.entries(p.access)
+            .filter(([, access]) => access.available && access.cost === "free")
+            .map(([capability, access]) => ({ provider: p.provider, capability, mode: access.mode })),
         )
 
         return {
@@ -39,6 +50,7 @@ export const doctorCommand = Command.make(
           artifact_dir: artifacts,
           store_path: store,
           providers,
+          free_capabilities: free,
         }
       }),
     )
@@ -64,6 +76,8 @@ export const capabilitiesCommand = Command.make(
             auth: spec.auth.kind,
             public_fallback: spec.publicFallback,
             capabilities: spec.capabilities,
+            keyless_capabilities: TIER_RULES[name]?.public ?? [],
+            local_capabilities: TIER_RULES[name]?.local ?? [],
           }
         })
 
@@ -95,6 +109,16 @@ export const capabilitiesCommand = Command.make(
             status: "local success-receipt; not a provider guarantee",
           },
           providers,
+          tiers: {
+            modes: {
+              keyed: "API key configured; spends account credits (cost paid)",
+              public: "keyless endpoint, rate-limited (cost free)",
+              local: "runs on this machine (cost free)",
+              unavailable: "needs a key that is not configured, or not supported",
+            },
+            routing: 'unified search/fetch/research/verify/papers accept tier: "free" to use only public/local access',
+            matrix: tierTable(),
+          },
           commands: contracts.map((contract) => ({
             command: contract.command,
             description: contract.description,
