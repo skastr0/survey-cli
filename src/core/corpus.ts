@@ -5,7 +5,7 @@ import { Context, Effect, Layer } from "effect"
 
 import { StoreError } from "./errors"
 import { storePath } from "./paths"
-import { canonicalizeUrl } from "./store"
+import { canonicalizeUrl, openDatabase } from "./store"
 
 /**
  * Local research corpus: every document survey has read (web fetches, local
@@ -252,14 +252,7 @@ export class Corpus extends Context.Service<Corpus, {
     Effect.gen(function* () {
       const path = yield* storePath
       const db: Database = yield* Effect.tryPromise({
-        try: async () => {
-          const { Database } = await import("bun:sqlite")
-          const database = new Database(path, { create: true })
-          database.exec("PRAGMA journal_mode = WAL")
-          database.exec("PRAGMA busy_timeout = 5000")
-          database.exec(MIGRATIONS)
-          return database
-        },
+        try: () => openDatabase(path, MIGRATIONS),
         catch: (error) =>
           new StoreError({
             operation: "corpus.open",

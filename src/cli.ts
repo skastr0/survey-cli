@@ -92,6 +92,10 @@ const program = rootCommand.pipe(
     setExitCode(1).pipe(Effect.andThen(writeCauseEnvelope(undefined, cause))),
   ),
   Effect.provide(runtimeLayer),
+  // Layer construction (e.g. opening the store) fails outside the handlers above.
+  Effect.catch((error: unknown) =>
+    setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(undefined, error))),
+  ),
 )
 
 program.pipe(BunRuntime.runMain)

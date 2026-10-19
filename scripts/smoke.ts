@@ -97,6 +97,23 @@ try {
   )
   check("every contract resolves to a real command (--help)", helpFailures.length === 0, helpFailures)
 
+  // Concurrent first runs on a fresh home must not race the schema migration
+  // (was intermittently "no such table: main.runs" / "database is locked").
+  const raceHome = mkdtempSync(join(tmpdir(), "survey-smoke-race-"))
+  const raced = await Promise.all(
+    Array.from({ length: 12 }, async () => {
+      const proc = Bun.spawn([...base, "corpus", "stats"], {
+        env: { ...env, SURVEY_HOME: raceHome },
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+      return exitCode === 0 ? undefined : stderr.slice(0, 200)
+    }),
+  )
+  rmSync(raceHome, { recursive: true, force: true })
+  check("concurrent first runs share one store", raced.every((failure) => failure === undefined), raced.filter(Boolean))
+
   // Corpus on real SQLite/FTS5.
   const notePath = join(home, "note.md")
   writeFileSync(notePath, "# Smoke\nThe quick brown fox.\nRate limit: 100 rpm\n")

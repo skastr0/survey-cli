@@ -71,6 +71,22 @@ export const canonicalizeUrl = (rawUrl: string): string => {
 
 const now = () => new Date().toISOString()
 
+/**
+ * Open the shared SQLite file and apply `migrations` safely when several
+ * survey processes start at once on a fresh SURVEY_HOME (agents fan out):
+ * busy_timeout first so the WAL switch and schema writes wait instead of
+ * failing "database is locked", and migrations inside BEGIN IMMEDIATE so a
+ * reader never sees a half-created schema ("no such table: main.runs").
+ */
+export const openDatabase = async (path: string, migrations: string) => {
+  const { Database } = await import("bun:sqlite")
+  const database = new Database(path, { create: true })
+  database.exec("PRAGMA busy_timeout = 10000")
+  database.exec("PRAGMA journal_mode = WAL")
+  database.transaction(() => database.exec(migrations)).immediate()
+  return database
+}
+
 const MIGRATIONS = `
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
@@ -156,13 +172,7 @@ export class Store extends Context.Service<Store, {
     Effect.gen(function* () {
       const path = yield* storePath
       const db = yield* Effect.tryPromise({
-        try: async () => {
-          const { Database } = await import("bun:sqlite")
-          const database = new Database(path, { create: true })
-          database.exec("PRAGMA journal_mode = WAL")
-          database.exec(MIGRATIONS)
-          return database
-        },
+        try: () => openDatabase(path, MIGRATIONS),
         catch: (error) =>
           new StoreError({
             operation: "open",
