@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Schema } from "effect"
+import { Context, Effect, FileSystem, Schema } from "effect"
 
 import { CommandInputError, MissingApiKeyError } from "./errors"
 import { decodeUnknownJsonText } from "./json"
@@ -30,6 +30,7 @@ export const Capability = Schema.Literals([
   "code_context",
   "entity_search",
   "files",
+  "papers",
 ])
 export type Capability = typeof Capability.Type
 
@@ -74,7 +75,8 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     envVar: "FIRECRAWL_API_KEY",
     baseUrlEnv: "FIRECRAWL_API_BASE_URL",
     defaultBaseUrl: "https://api.firecrawl.dev/v2",
-    keyHint: "Export FIRECRAWL_API_KEY from your Firecrawl dashboard.",
+    keyHint:
+      "Export FIRECRAWL_API_KEY from your Firecrawl dashboard. Without a key, search, scrape, parse, interact, and the research index use the rate-limited keyless free tier.",
     auth: { kind: "bearer" },
     capabilities: [
       "fetch",
@@ -86,8 +88,9 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "batch",
       "interact",
       "deep_research",
+      "papers",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   parallel: {
     name: "parallel",
@@ -140,6 +143,15 @@ export const parseProvider = (value: string) =>
         }),
     ),
   )
+
+/**
+ * When true, provider configs ignore stored and env credentials, so every call
+ * goes through keyless public endpoints or fails with MissingApiKeyError.
+ * Unified commands set it for `tier: "free"` so no account credits are spent.
+ */
+export const KeylessOnly = Context.Reference<boolean>("survey/core/registry/KeylessOnly", {
+  defaultValue: () => false,
+})
 
 export interface ProviderConfig {
   readonly provider: ProviderName
@@ -222,6 +234,10 @@ export const loadProviderConfig = Effect.fn("loadProviderConfig")(function* (
     Bun.env[spec.baseUrlEnv] ?? spec.defaultBaseUrl,
     spec.baseUrlEnv,
   )
+
+  if (yield* KeylessOnly) {
+    return { provider, apiBaseUrl } satisfies ProviderConfig
+  }
 
   const envKey = Bun.env[spec.envVar]?.trim()
   if (envKey && envKey.length > 0) {
