@@ -341,7 +341,12 @@ describe("research start | check | wait | inspect", () => {
   it.live("unknown ids and blocking runs answer with typed results", () =>
     Effect.gen(function* () {
       const missing = yield* run(["research", "check", json({ id: "srv_nope" })])
-      expect(missing).toMatchObject({ ok: false, error: { type: "CommandInputError", details: { field: "id" } } })
+      expect(missing).toMatchObject({ ok: false, error: { type: "NotFoundError", details: { resource: "research run" } } })
+
+      delete process.env.EXA_API_KEY
+      const unstartable = yield* run(["research", "start", json(query)])
+      expect(unstartable).toMatchObject({ ok: false, error: { type: "AllProvidersFailedError" } })
+      process.env.EXA_API_KEY = "exa-test"
 
       useExa(yield* Effect.promise(() => exaStub({ pollsUntilDone: 1 })))
       const blocking = yield* run(["research", json({ ...query, store: false })])

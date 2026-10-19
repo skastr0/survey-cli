@@ -6,7 +6,7 @@ import type { AppEnv } from "../core/env"
 import { writeArtifact } from "../core/artifacts"
 import { makeJsonCommand } from "../core/command"
 import { registerContracts } from "../core/discovery"
-import { CommandInputError, JobWaitTimeoutError, StoreError } from "../core/errors"
+import { AllProvidersFailedError, CommandInputError, JobWaitTimeoutError, NotFoundError, StoreError } from "../core/errors"
 import { groupSources, independenceView } from "../core/independence"
 import { toErrorDetails } from "../core/output"
 import { recordRun, recordSources, updateRun, extractUrls, type SourceLike } from "../core/runs"
@@ -540,6 +540,19 @@ export const researchStart = Effect.fn("researchStart")(function* (input: Resear
     { concurrency: "unbounded" },
   )
 
+  // Nothing to check later: fail now instead of returning a "running" research with no members.
+  if (members.every((member) => member.status === "failed")) {
+    return yield* new AllProvidersFailedError({
+      capability: "research",
+      target: input.query,
+      attempted: [...routed.skipped, ...members.map(({ provider, error }) => ({ provider, error }))],
+      message:
+        members.length === 0
+          ? `No research provider could start: ${routed.skipped.map((s) => `${s.provider} (${s.reason})`).join(", ") || "none eligible"}`
+          : `Every research member failed to start (${members.map((m) => m.provider).join(", ")})`,
+    })
+  }
+
   const payload: AsyncResearchPayload = {
     mode: "async",
     input,
@@ -577,7 +590,12 @@ const loadResearch = Effect.fn("loadResearch")(function* (id: string) {
   const store = yield* Store
   const run = yield* store.getRun(id)
   if (!run || run.kind !== "survey.research") {
-    return yield* new CommandInputError({ field: "id", message: `No research run ${id}` })
+    return yield* new NotFoundError({
+      resource: "research run",
+      id,
+      message: `No research run ${id}`,
+      next_step: `survey runs list '{"provider":"survey"}'`,
+    })
   }
   const payload = (() => {
     try {
