@@ -1,5 +1,12 @@
 import { Schema } from "effect"
 
+/** One schema decoding failure: dotted/indexed path into the input and what was wrong there. */
+export const InputIssue = Schema.Struct({
+  path: Schema.String,
+  message: Schema.String,
+})
+export type InputIssue = typeof InputIssue.Type
+
 export class ConfigurationError extends Schema.TaggedError<ConfigurationError>()(
   "ConfigurationError",
   {
@@ -23,6 +30,7 @@ export class JsonInputError extends Schema.TaggedError<JsonInputError>()(
     source: Schema.String,
     reason: Schema.String,
     message: Schema.String,
+    issues: Schema.optional(Schema.Array(InputIssue)),
   },
 ) {}
 
@@ -31,6 +39,7 @@ export class CommandInputError extends Schema.TaggedError<CommandInputError>()(
   {
     field: Schema.String,
     message: Schema.String,
+    issues: Schema.optional(Schema.Array(InputIssue)),
   },
 ) {}
 
@@ -151,6 +160,22 @@ export class LocalToolError extends Schema.TaggedError<LocalToolError>()(
   },
 ) {}
 
+/** The argv itself could not be parsed: unknown command or flag, missing argument, bad flag value. */
+export class CliUsageError extends Schema.TaggedError<CliUsageError>()(
+  "CliUsageError",
+  {
+    command_path: Schema.Array(Schema.String),
+    issues: Schema.Array(
+      Schema.Struct({
+        type: Schema.String,
+        message: Schema.String,
+      }),
+    ),
+    suggestions: Schema.Array(Schema.String),
+    message: Schema.String,
+  },
+) {}
+
 export type AppError =
   | ConfigurationError
   | MissingApiKeyError
@@ -166,3 +191,4 @@ export type AppError =
   | McpError
   | LocalToolUnavailableError
   | LocalToolError
+  | CliUsageError

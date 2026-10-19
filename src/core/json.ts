@@ -1,22 +1,60 @@
-import { Effect, FileSystem, Schema } from "effect"
+import { Effect, FileSystem, Schema, SchemaIssue } from "effect"
 
-import { JsonInputError } from "./errors"
+import { type InputIssue, JsonInputError } from "./errors"
+
+const formatStandardIssues = SchemaIssue.makeFormatterStandardSchemaV1()
+
+const formatPath = (path: ReadonlyArray<PropertyKey>) =>
+  path.reduce<string>(
+    (acc, segment) =>
+      typeof segment === "number"
+        ? `${acc}[${segment}]`
+        : acc.length === 0
+          ? String(segment)
+          : `${acc}.${String(segment)}`,
+    "",
+  )
+
+/** Flatten a Schema issue tree into `{path, message}` pairs an agent can act on. */
+export const toInputIssues = (issue: SchemaIssue.Issue): ReadonlyArray<InputIssue> =>
+  formatStandardIssues(issue).issues.map((entry) => ({
+    path: formatPath((entry.path ?? []).map((segment) =>
+      typeof segment === "object" && segment !== null && "key" in segment ? segment.key : segment,
+    )),
+    message: entry.message,
+  }))
+
+const parseJsonText = (text: string, source: string) =>
+  Effect.try({
+    try: (): unknown => JSON.parse(text),
+    catch: (cause) =>
+      new JsonInputError({
+        source,
+        reason: "InvalidJson",
+        message: cause instanceof Error ? cause.message : "Invalid JSON",
+      }),
+  })
+
+export const decodeJsonValue = <S extends Schema.Constraint>(schema: S, value: unknown, source: string) =>
+  Schema.decodeUnknownEffect(schema)(value, { errors: "all" }).pipe(
+    Effect.mapError((error) => {
+      const issues = toInputIssues(error.issue)
+      return new JsonInputError({
+        source,
+        reason: "InvalidShape",
+        message: issues.length > 0
+          ? issues.map((entry) => (entry.path ? `${entry.path}: ${entry.message}` : entry.message)).join("; ")
+          : String(error.message ?? error),
+        issues,
+      })
+    }),
+  ) as Effect.Effect<S["Type"], JsonInputError, S["DecodingServices"]>
 
 const decodeJsonWithSchema = <S extends Schema.Constraint>(
   schema: S,
   text: string,
   source: string,
-) =>
-  Schema.decodeEffect(Schema.fromJsonString(schema))(text).pipe(
-    Effect.mapError(
-      (error) =>
-        new JsonInputError({
-          source,
-          reason: "InvalidJson",
-          message: String(error.message ?? error),
-        }),
-    ),
-  )
+) => parseJsonText(text, source).pipe(Effect.flatMap((value) => decodeJsonValue(schema, value, source)))
 
 export const decodeUnknownJsonText = (text: string, source: string) =>
   decodeJsonWithSchema(Schema.Unknown, text, source)
@@ -26,18 +64,6 @@ export const decodeJsonText = <S extends Schema.Constraint>(
   text: string,
   source: string,
 ) => decodeJsonWithSchema(schema, text, source)
-
-export const decodeJsonValue = <S extends Schema.Constraint>(schema: S, value: unknown, source: string) =>
-  Schema.decodeUnknownEffect(schema)(value).pipe(
-    Effect.mapError(
-      (error) =>
-        new JsonInputError({
-          source,
-          reason: "InvalidShape",
-          message: String(error.message ?? error),
-        }),
-    ),
-  )
 
 const readStdinText = Effect.tryPromise({
   try: () => new Response(Bun.stdin.stream()).text(),

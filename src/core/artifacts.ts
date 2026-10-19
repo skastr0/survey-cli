@@ -12,12 +12,15 @@ export interface ArtifactRecord {
   readonly key: string
   readonly absolute_path: string
   readonly size_bytes: number
+  readonly created_at: string
 }
 
 export interface SummaryArtifact {
   readonly kind: "summary+artifact"
   readonly summary: string
   readonly artifact: ArtifactRecord
+  /** How to get the full content back without re-running the command. */
+  readonly next_step: string
 }
 
 const slugify = (value: string) =>
@@ -37,7 +40,8 @@ export const writeArtifact = (options: {
     const path = yield* Path.Path
     const fs = yield* FileSystem.FileSystem
 
-    const filename = `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugify(options.key)}`
+    const createdAt = new Date().toISOString()
+    const filename = `${createdAt.replace(/[:.]/g, "-")}-${slugify(options.key)}`
     const extension = options.kind === "json" ? ".json" : options.kind === "markdown" ? ".md" : options.kind === "binary" ? ".bin" : ".txt"
     const absolutePath = path.join(dir, `${filename}${extension}`)
 
@@ -62,6 +66,7 @@ export const writeArtifact = (options: {
       key: options.key,
       absolute_path: absolutePath,
       size_bytes: size,
+      created_at: createdAt,
     } satisfies ArtifactRecord
   })
 
@@ -97,5 +102,6 @@ export const emitOutput = (options: {
       kind: "summary+artifact" as const,
       summary: options.summary,
       artifact,
+      next_step: `Read ${artifact.absolute_path} (${artifact.kind}, ${artifact.size_bytes} bytes); rerun with --output inline to get it on stdout.`,
     } satisfies SummaryArtifact
   })

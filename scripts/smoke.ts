@@ -92,10 +92,56 @@ try {
   await Promise.all(
     commands.map(async (command) => {
       const help = await run([...command.split(" "), "--help"])
-      if (help.exitCode !== 0 || !help.stdout.includes("USAGE")) helpFailures.push(command)
+      if (help.exitCode !== 0 || !help.stdout.includes("USAGE") || !help.stdout.includes("CONTRACT")) {
+        helpFailures.push(command)
+      }
     }),
   )
   check("every contract resolves to a real command (--help)", helpFailures.length === 0, helpFailures)
+
+  // Capabilities derives per-command flags and input mode from the parser.
+  const surfaceGaps = (capabilities.data?.commands ?? []).filter(
+    (c: { flags?: unknown; input?: string }) =>
+      !Array.isArray(c.flags) || !["required", "optional", "none"].includes(c.input ?? ""),
+  )
+  check("capabilities lists flags + input mode per command", surfaceGaps.length === 0, surfaceGaps.slice(0, 3))
+
+  // Failure contract: exit 1, nothing on stdout, one stderr envelope with details.retryable.
+  const failing: ReadonlyArray<[string, ReadonlyArray<string>, string]> = [
+    ["unknown command", ["no-such-command"], "CliUsageError"],
+    ["unknown flag", ["search", "--no-such-flag", "{}"], "CliUsageError"],
+    ["invalid json", ["search", "{bad"], "JsonInputError"],
+    ["schema mismatch", ["search", '{"query":1}'], "JsonInputError"],
+  ]
+  for (const [name, argv, type] of failing) {
+    const result = await run(argv)
+    let envelope: any
+    try {
+      envelope = JSON.parse(result.stderr)
+    } catch {
+      envelope = undefined
+    }
+    check(
+      `failure contract: ${name}`,
+      result.exitCode === 1 &&
+        result.stdout.trim() === "" &&
+        envelope?.ok === false &&
+        envelope.error?.type === type &&
+        typeof envelope.error?.details?.retryable === "boolean" &&
+        typeof envelope.error?.details?.hint === "string",
+      { exitCode: result.exitCode, stdout: result.stdout.slice(0, 120), stderr: result.stderr.slice(0, 300) },
+    )
+  }
+  const mismatch = await run(["search", '{"query":1}'])
+  const mismatchError = JSON.parse(mismatch.stderr || "{}").error
+  check(
+    "schema mismatch reports issue paths + schema next_step",
+    mismatchError?.details?.issues?.[0]?.path === "query" &&
+      String(mismatchError?.details?.next_step).includes('schema show "search"'),
+    mismatchError,
+  )
+  const help = await run(["--help"])
+  check("--help exits 0 on stdout", help.exitCode === 0 && help.stdout.includes("USAGE") && help.stderr === "", help.stderr)
 
   // Corpus on real SQLite/FTS5.
   const notePath = join(home, "note.md")

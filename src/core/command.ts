@@ -13,32 +13,36 @@ export const jsonInputArg = Argument.string("input").pipe(
 
 export const optionalJsonInputArg = Argument.string("input").pipe(
   Argument.optional,
-  Argument.withDescription("Optional JSON payload: inline JSON, @file, -, or @-"),
+  Argument.withDescription("JSON payload: inline JSON, @file, -, or @- (CONTRACT below says whether it is required)"),
 )
 
 export const outputFlag = Flag.choice("output", ["inline", "artifact", "auto"]).pipe(
   Flag.withDefault("auto" as const),
-  Flag.withDescription("Emit large results inline or as an artifact"),
+  Flag.withDescription(
+    "Where results go: inline (always on stdout), artifact (written to a file; stdout gets a summary + path), auto (artifact above 64 KiB). Default auto",
+  ),
 )
 
 export const concurrencyFlag = Flag.integer("concurrency").pipe(
   Flag.withDefault(5),
-  Flag.withDescription("Batch concurrency (positive integer)"),
+  Flag.withDescription("Max batch items in flight (positive integer, default 5)"),
 )
 
 export const timeoutFlag = Flag.integer("timeout").pipe(
   Flag.optional,
-  Flag.withDescription("Per-operation timeout in milliseconds"),
+  Flag.withDescription("Polling budget in milliseconds for wait-style commands; on expiry fails with JobWaitTimeoutError (retryable)"),
 )
 
 export const waitFlag = Flag.boolean("wait").pipe(
   Flag.withDefault(false),
-  Flag.withDescription("Wait for job completion before returning"),
+  Flag.withDescription("Block until the job reaches a terminal status instead of returning its id immediately"),
 )
 
 export const idempotencyFlag = Flag.string("idempotency-key").pipe(
   Flag.optional,
-  Flag.withDescription("Local idempotency receipt key (not a provider guarantee)"),
+  Flag.withDescription(
+    "Replay key: a repeat call with the same key returns the stored success instead of resubmitting (local receipt, not a provider guarantee)",
+  ),
 )
 
 export interface JsonCommandOptions<S extends Schema.Constraint, E, R> {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Cause, Effect, FileSystem, Layer, Path, Schema } from "effect"
 
 import { emitOutput } from "../src/core/artifacts"
 import { canonicalizeUrl, Store } from "../src/core/store"
 import { extractUrls } from "../src/core/runs"
 import { decodeJsonText, loadJsonInput } from "../src/core/json"
-import { renderFailureEnvelope, renderSuccessEnvelope, toErrorDetails } from "../src/core/output"
+import { causeToErrorDetails, renderFailureEnvelope, renderSuccessEnvelope, toErrorDetails } from "../src/core/output"
 import { CommandInputError, MissingApiKeyError } from "../src/core/errors"
 
 // emitOutput reads Bun.env; vitest runs under Node.
@@ -112,6 +112,67 @@ describe("envelopes", () => {
     )
     expect(details.type).toBe("CommandInputError")
   })
+})
+
+describe("error contract", () => {
+  it("renders plain {_tag} failure records like their TaggedError class", () => {
+    const details = toErrorDetails({
+      _tag: "MissingApiKeyError",
+      provider: "parallel",
+      envVar: "PARALLEL_API_KEY",
+      hint: "set it",
+    })
+    expect(details.type).toBe("MissingApiKeyError")
+    expect(details.message).toBe("PARALLEL_API_KEY is not configured")
+    expect(details.details).toMatchObject({ env_var: "PARALLEL_API_KEY", retryable: false })
+  })
+
+  it("keeps unknown tagged errors' fields, redacting secrets", () => {
+    const details = toErrorDetails({ _tag: "SomethingNew", message: "m", target: "t", api_key: "sk" })
+    expect(details).toMatchObject({
+      type: "SomethingNew",
+      details: { target: "t", api_key: "[redacted]", retryable: false },
+    })
+  })
+
+  it("points input errors at schema discovery for the failing command", () => {
+    const parsed = JSON.parse(renderFailureEnvelope("exa web-search", new CommandInputError({ field: "q", message: "m" })))
+    expect(parsed.error.details.next_step).toContain('survey schema show "exa web-search"')
+  })
+
+  it("gives every failure retryable and hint", () => {
+    for (const error of [new Error("boom"), "text", { _tag: "X" }]) {
+      const details = toErrorDetails(error).details as Record<string, unknown>
+      expect(typeof details.retryable).toBe("boolean")
+      expect(typeof details.hint).toBe("string")
+    }
+  })
+
+  it("renders defects with the squashed message and the trace in details", () => {
+    const details = causeToErrorDetails(Cause.die(new Error("invariant broke")))
+    expect(details.type).toBe("UnexpectedError")
+    expect(details.message).toBe("invariant broke")
+    expect((details.details as Record<string, unknown>).trace).toEqual(expect.any(String))
+  })
+})
+
+describe("input issues", () => {
+  it.effect("reports schema mismatches as InvalidShape with every issue path", () =>
+    Effect.gen(function* () {
+      const schema = Schema.Struct({ query: Schema.String, opts: Schema.Struct({ n: Schema.Number }) })
+      const error = yield* Effect.flip(decodeJsonText(schema, '{"query":1,"opts":{"n":"x"}}', "inline"))
+      expect(error.reason).toBe("InvalidShape")
+      expect(error.issues?.map((issue) => issue.path)).toEqual(["query", "opts.n"])
+    }),
+  )
+
+  it.effect("reports unparseable text as InvalidJson with the parser message", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(decodeJsonText(Schema.Unknown, "{bad", "inline"))
+      expect(error.reason).toBe("InvalidJson")
+      expect(error.message).not.toBe("Expected a valid JSON string")
+    }),
+  )
 })
 
 describe("store service contract", () => {

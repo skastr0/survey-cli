@@ -47,12 +47,12 @@ const authStatus = Command.make(
       }),
     )
   }),
-).pipe(Command.withDescription("Report credential status for every provider"))
+).pipe(Command.withDescription("Report, per provider, whether a key is configured and where it comes from (env var or auth file), plus local tool status. No input; never prints key values"))
 
 const authSet = makeJsonCommand({
   name: "set",
   commandName: "auth set",
-  description: "Store a provider API key in the survey auth file",
+  description: "Store a provider API key in auth.json under the survey home (mode 0600). Input: {provider, api_key}. Returns {provider, stored, auth_file}; an env var for the same provider still takes precedence",
   schema: AuthSetInput,
   run: (input) =>
     Effect.gen(function* () {
@@ -63,7 +63,8 @@ const authSet = makeJsonCommand({
 
 registerContract({
   command: "auth set",
-  description: "Store a provider API key",
+  description: "Store a provider API key in the survey auth file (env vars take precedence)",
+  output: "{provider, stored: true, auth_file}",
   inputSchema: AuthSetInput,
   examples: [
     {
