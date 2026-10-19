@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { makeJsonCommand } from "../core/command"
-import { registerContract } from "../core/discovery"
+import { registerContracts } from "../core/discovery"
 import { CommandInputError, ProviderUnsupportedError } from "../core/errors"
 import { executeJsonCommand, toErrorDetails } from "../core/output"
 import type { AppEnv } from "../core/env"
@@ -259,12 +259,50 @@ export const runsCommand = Command.make("runs").pipe(
   Command.withSubcommands([runsList, runsInspect, runsWait, runsCancel, runsEvents]),
 )
 
-for (const [command, description] of [
-  ["runs list", "List tracked runs"],
-  ["runs inspect", "Inspect a run with live provider status"],
-  ["runs wait", "Poll a run to terminal status"],
-  ["runs cancel", "Cancel a run if supported"],
-  ["runs events", "Fetch provider events for a run"],
-] as const) {
-  registerContract({ command, description })
-}
+const RUN_ID_EXAMPLE = "srv_01j7x9v0m2n4p6q8r0s2t4v6w8"
+
+registerContracts([
+  {
+    command: "runs list",
+    description: "List tracked runs across all providers",
+    inputSchema: ListRunsInput,
+    orbit: ["list", "inspect", "wait", "cancel", "events"],
+    examples: [
+      { name: "recent runs", input: {} },
+      { name: "failed parallel runs", input: { provider: "parallel", status: "failed", limit: 20 } },
+    ],
+  },
+  {
+    command: "runs inspect",
+    description: "Inspect a run: local record + live provider status",
+    inputSchema: RunIdInput,
+    orbit: ["list", "inspect", "wait", "cancel", "events"],
+    examples: [
+      { name: "by survey run id", input: { id: RUN_ID_EXAMPLE } },
+      { name: "by provider remote id", input: { provider: "exa", remote_id: "agent_run_01j7x9v0m2n4p6q8r0s2t4v6w8" } },
+    ],
+  },
+  {
+    command: "runs wait",
+    description: "Poll a run until terminal status",
+    inputSchema: WaitInput,
+    orbit: ["list", "inspect", "wait", "cancel", "events"],
+    examples: [
+      { name: "wait up to 10 minutes", input: { id: RUN_ID_EXAMPLE, interval_ms: 5000, timeout_ms: 600000 } },
+    ],
+  },
+  {
+    command: "runs cancel",
+    description: "Cancel a run where the provider supports it",
+    inputSchema: RunIdInput,
+    orbit: ["list", "inspect", "wait", "cancel", "events"],
+    examples: [{ name: "cancel by id", input: { id: RUN_ID_EXAMPLE } }],
+  },
+  {
+    command: "runs events",
+    description: "Fetch provider events for a run",
+    inputSchema: RunIdInput,
+    orbit: ["list", "inspect", "wait", "cancel", "events"],
+    examples: [{ name: "events by id", input: { id: RUN_ID_EXAMPLE } }],
+  },
+])
