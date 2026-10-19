@@ -392,6 +392,37 @@ describe("exa keyless MCP", () => {
     ])
   })
 
+  it("keeps --- rules inside a page and splits web_fetch_exa pages joined without ---", () => {
+    // Shape of live web_fetch_exa text for two URLs (2026-10-19), bodies shortened.
+    const fetched = [
+      "# SQLite | Bun Docs",
+      "URL: https://bun.sh/docs/api/sqlite",
+      "",
+      "# SQLite",
+      "",
+      "View and run the benchmark source.",
+      "",
+      "---",
+      "",
+      "## Database",
+      "",
+      "To open or create a SQLite3 database:",
+      "",
+      "# Example Domain",
+      "URL: https://example.com",
+      "",
+      "Example Domain",
+    ].join("\n")
+    expect(parseExaMcpText(fetched)).toEqual([
+      {
+        url: "https://bun.sh/docs/api/sqlite",
+        title: "SQLite | Bun Docs",
+        text: "# SQLite\n\nView and run the benchmark source.\n\n---\n\n## Database\n\nTo open or create a SQLite3 database:",
+      },
+      { url: "https://example.com", title: "Example Domain", text: "Example Domain" },
+    ])
+  })
+
   it("webSearch without a key calls the MCP tool over SSE and reports ignored options", async () => {
     await withStub(
       {
@@ -437,6 +468,30 @@ describe("exa keyless MCP", () => {
   })
 })
 
+describe("exa keyless contents", () => {
+  it("asks web_fetch_exa for full text unless maxCharacters is given", async () => {
+    const asked: Array<unknown> = []
+    await withStub(
+      {
+        "/exa-mcp": mcpHandler({
+          sse: true,
+          call: (name, args) => {
+            expect(name).toBe("web_fetch_exa")
+            asked.push(args.maxCharacters)
+            return { content: [{ type: "text", text: "# Page\nURL: https://example.com\n\nbody" }] }
+          },
+        }),
+      },
+      {},
+      async () => {
+        await run(exaApi.contents({ url: "https://example.com" } as never))
+        await run(exaApi.contents({ url: "https://example.com", maxCharacters: 500 } as never))
+        expect(asked).toEqual([100_000, 500])
+      },
+    )
+  })
+})
+
 describe("parallel keyless MCP", () => {
   it("search carries the issued Mcp-Session-Id and decodes structuredContent", async () => {
     await withStub(
@@ -465,6 +520,29 @@ describe("parallel keyless MCP", () => {
         expect(result.auth_mode).toBe("public")
         expect(result.search_id).toBe("search_1")
         expect(result.results[0]?.url).toBe("https://arxiv.org/abs/2312.00752")
+      },
+    )
+  })
+
+  it("search without a key trims to max_results (web_search returns 10)", async () => {
+    await withStub(
+      {
+        "/parallel-mcp": mcpHandler({
+          call: () => ({
+            content: [],
+            structuredContent: {
+              search_id: "search_1",
+              session_id: "srv",
+              results: Array.from({ length: 10 }, (_, i) => ({ url: `https://example.com/${i}`, title: `r${i}`, excerpts: ["x"] })),
+            },
+          }),
+        }),
+      },
+      {},
+      async () => {
+        const result = await run(parallelApi.search({ objective: "fts5", max_results: 3 }))
+        expect(result.results.map((r) => r.url)).toEqual(["https://example.com/0", "https://example.com/1", "https://example.com/2"])
+        expect((result as { ignored_options?: Array<string> }).ignored_options).not.toContain("max_results")
       },
     )
   })
@@ -621,6 +699,38 @@ describe("unified keyless routing", () => {
     )
   })
 
+  it("verify keeps Exa citation URLs as sources and asks Parallel base for a text schema", async () => {
+    await withStub(
+      {
+        // Shapes of live POST /answer and GET /v1/tasks/runs/{id}/result (2026-10-19), trimmed.
+        "/exa/answer": () => ({
+          body: {
+            requestId: "req_redacted",
+            answer: "Yes, Bun 1.1 added native Windows support [1].",
+            citations: [{ id: "https://bun.com/blog/bun-v1.1", title: "Bun 1.1 | Bun Blog", url: "https://bun.com/blog/bun-v1.1", publishedDate: "2024-04-01T16:00:00.000Z" }],
+            costDollars: { total: 0.005 },
+          },
+        }),
+        "/parallel/v1/tasks/runs": (seen) =>
+          seen.method === "POST"
+            ? { body: { run_id: "run_v", status: "completed", is_active: false, processor: "base", created_at: "2026-10-19T00:00:00Z" } }
+            : seen.pathname.endsWith("/result")
+              ? { body: { run: { run_id: "run_v", status: "completed", is_active: false, processor: "base" }, output: { type: "text", content: "Verified.", basis: [{ field: "output", reasoning: "Release notes say so.", confidence: "high", citations: [{ url: "https://bun.com/blog/bun-v1.1", title: "Bun 1.1 | Bun Blog", excerpts: ["You can now run Bun on Windows 10 and later!"] }] }] } } }
+              : { body: { run_id: "run_v", status: "completed", is_active: false, processor: "base", created_at: "2026-10-19T00:00:00Z" } },
+      },
+      { EXA_API_KEY: "exa-key", PARALLEL_API_KEY: "par-key" },
+      async (seen) => {
+        const result = await run(verify({ claim: "Bun 1.1 added native Windows support", providers: ["exa", "parallel"] }))
+        expect(result.verdicts.find((v) => v.provider === "exa")).toMatchObject({ ok: true, sources: ["https://bun.com/blog/bun-v1.1"] })
+        expect(result.verdicts.find((v) => v.provider === "parallel")).toMatchObject({ ok: true, answer: "Verified." })
+        const answerBody = seen.find((s) => s.pathname === "/exa/answer")?.body as Record<string, unknown>
+        expect(answerBody.text).toBeUndefined()
+        const taskBody = seen.find((s) => s.method === "POST" && s.pathname === "/parallel/v1/tasks/runs")?.body
+        expect(taskBody).toMatchObject({ processor: "base", task_spec: { output_schema: { type: "text" } } })
+      },
+    )
+  })
+
   it("verify with domain academic and tier free uses only the paper index", async () => {
     await withStub(
       {
@@ -670,6 +780,55 @@ describe("unified error envelopes", () => {
     const exit = await run(Effect.flip(effect))
     return { raw: exit, envelope: toErrorDetails(exit) }
   }
+
+  it("extract urls + schema registers the async Firecrawl job as a run", async () => {
+    // Live POST /v2/extract response (2026-10-19), id redacted.
+    await withStub(
+      {
+        "/fc/extract": () => ({
+          body: {
+            success: true,
+            id: "01a152db-0000-0000-0000-000000000000",
+            urlTrace: [],
+            warnings: ["/v2/extract is deprecated. Use /v2/scrape with formats including a 'json' format object."],
+            replacement: "/v2/scrape",
+          },
+        }),
+      },
+      { FIRECRAWL_API_KEY: "fc-key" },
+      async () => {
+        const result = (await run(
+          unifiedExtract({ urls: ["https://example.com"], schema: { type: "object", properties: { title: { type: "string" } } } }),
+        )) as { routed_to: string; result: { id: string; status: string; run_id?: string } }
+        expect(result.routed_to).toBe("firecrawl")
+        expect(result.result).toMatchObject({ id: "01a152db-0000-0000-0000-000000000000", status: "submitted" })
+        expect(typeof result.result.run_id).toBe("string")
+      },
+    )
+  })
+
+  it("extract with only an objective runs a Parallel objective search", async () => {
+    // Result shape captured from live keyed POST /v1/search on 2026-10-19 (ids redacted).
+    await withStub(
+      {
+        "/parallel/v1/search": () => ({
+          body: {
+            search_id: "search_redacted",
+            session_id: "session_redacted",
+            results: [{ url: "https://bun.com/blog", title: "Bun Blog", publish_date: null, excerpts: ["Oven was founded in 2022."] }],
+          },
+        }),
+      },
+      { PARALLEL_API_KEY: "test-key" },
+      async (seen) => {
+        const result = (await run(unifiedExtract({ objective: "When was Oven founded?" }))) as { routed_to: string; result: { results: Array<{ url: string }> } }
+        expect(result.routed_to).toBe("parallel")
+        expect(result.result.results[0]?.url).toBe("https://bun.com/blog")
+        expect(seen.map((s) => s.pathname)).toEqual(["/parallel/v1/search"])
+        expect(seen[0]?.body).toMatchObject({ objective: "When was Oven founded?" })
+      },
+    )
+  })
 
   it("extract without a key fails with MissingApiKeyError naming the PROVIDERS env var", async () => {
     await withStub({}, {}, async (seen) => {

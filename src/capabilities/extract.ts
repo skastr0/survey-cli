@@ -6,6 +6,7 @@ import { makeJsonCommand } from "../core/command"
 import { registerContract } from "../core/discovery"
 import { CommandInputError, MissingApiKeyError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
+import { recordRun } from "../core/runs"
 import { localConvertSource, unifiedConvert } from "./convert"
 import { PROVIDERS, ProviderName } from "../core/registry"
 import { providerAccess } from "../core/tiers"
@@ -111,15 +112,38 @@ export const unifiedExtract = Effect.fn("unifiedExtract")(function* (
         } as never) as Effect.Effect<unknown, unknown, AppEnv>
       }
       if (route.provider === "firecrawl") {
-        return yield* firecrawlApi.extractStart({
+        const started = (yield* firecrawlApi.extractStart({
           urls: input.urls ?? (input.url ? [input.url] : []),
           schema: input.schema,
           prompt: input.prompt,
           ...input.options,
+        } as never) as Effect.Effect<unknown, unknown, AppEnv>) as { id?: string; terminal?: boolean }
+        // The job is async (live: status "submitted"); register it so
+        // `survey runs wait/inspect` can follow it like `firecrawl extract start`.
+        if (typeof started.id === "string" && started.terminal !== true) {
+          const run = yield* recordRun({
+            provider: "firecrawl",
+            kind: "firecrawl.extract",
+            remoteId: started.id,
+            status: "queued",
+            payload: input,
+          })
+          return run === undefined ? started : { ...started, run_id: run.id }
+        }
+        return started
+      }
+      const urls = input.urls ?? (input.url ? [input.url] : undefined)
+      // No URLs: Parallel's URL extract needs at least one, so an objective (or
+      // entity) alone runs as an objective search, which returns excerpts.
+      if (urls === undefined || urls.length === 0) {
+        return yield* parallelApi.search({
+          objective: input.objective,
+          search_queries: input.entity ? [input.entity] : undefined,
+          ...input.options,
         } as never) as Effect.Effect<unknown, unknown, AppEnv>
       }
       return yield* parallelApi.extract({
-        urls: input.urls ?? (input.url ? [input.url] : undefined),
+        urls,
         objective: input.objective,
         search_queries: input.entity ? [input.entity] : undefined,
         ...input.options,

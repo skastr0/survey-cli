@@ -1111,16 +1111,46 @@ describe("parallel provider", () => {
     ),
   )
 
+  it.effect("deep-research run keeps the auto schema default for pro processors", () =>
+    withMockServer(
+      (request) => {
+        if (request.method === "POST" && request.url === "/v1/tasks/runs") {
+          expect(request.body).toMatchObject({ processor: "pro", task_spec: { output_schema: { type: "auto" } } })
+        }
+        if (request.url === "/v1/tasks/runs/run_pro/result") {
+          return {
+            body: {
+              run: { run_id: "run_pro", status: "completed", is_active: false, processor: "pro" },
+              output: { content: { answer: "done" }, type: "json" },
+            },
+          }
+        }
+        return {
+          body: { run_id: "run_pro", status: "completed", is_active: false, processor: "pro", created_at: "2026-10-19T00:00:00.000Z" },
+        }
+      },
+      (baseUrl) =>
+        Effect.gen(function* () {
+          const result = yield* runCli(
+            ["deep-research", "run", '{"input":"research","processor":"pro","max_wait_seconds":5,"poll_interval_seconds":1}'],
+            { PARALLEL_API_KEY: "test-key", PARALLEL_API_BASE_URL: baseUrl },
+          )
+          expect(result.exitCode).toBe(0)
+        }),
+    ),
+  )
+
   it.effect(
     "deep-research run polls a queued run and returns the completed result",
     () =>
       withMockServer(
         (request) => {
           if (request.method === "POST" && request.url === "/v1/tasks/runs") {
+            // base rejects auto schemas (live 400), so the default is text.
             expect(request.body).toEqual({
               input: "research",
               processor: "base",
-              task_spec: { output_schema: { type: "auto" } },
+              task_spec: { output_schema: { type: "text" } },
             })
             return {
               body: {

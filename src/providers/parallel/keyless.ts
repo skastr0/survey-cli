@@ -65,6 +65,7 @@ export const keylessSearch = (input: {
   readonly objective?: string | undefined
   readonly session_id?: string | undefined
   readonly client_model?: string | undefined
+  readonly max_results?: number | undefined
 }, searchQueries: ReadonlyArray<string>) =>
   callTool(
     "web_search",
@@ -78,9 +79,11 @@ export const keylessSearch = (input: {
   ).pipe(
     Effect.map(({ url, decoded }) => ({
       ...decoded,
+      // web_search has no result-count parameter (live: 10 results); trim locally.
+      ...(input.max_results !== undefined ? { results: decoded.results.slice(0, input.max_results) } : {}),
       auth_mode: "public" as const,
       endpoint: url,
-      ignored_options: ignoredFields(input, ["objective", "search_queries", "session_id", "client_model"]),
+      ignored_options: ignoredFields(input, ["objective", "search_queries", "session_id", "client_model", "max_results"]),
     })),
   )
 

@@ -80,8 +80,9 @@ const papersVerdict = (input: VerifyInput): Effect.Effect<Verdict, unknown, AppE
 const exaVerdict = (claim: string): Effect.Effect<Verdict, unknown, AppEnv> =>
   Effect.gen(function* () {
     const result = yield* exaApi.answer({
+      // No `text: true`: it embeds every citation's full page (live: ~1MB per
+      // verdict); the verdict uses only the answer and citation URLs.
       query: `Is this claim accurate? Answer concisely and cite sources. Claim: ${claim}`,
-      text: true,
     } as never) as Effect.Effect<unknown, unknown, never>
     const record = result as Record<string, unknown>
     const answer =
@@ -122,7 +123,7 @@ const collectUrls = (value: unknown): Array<string> => {
     if (typeof record.url === "string" && /^https?:\/\//.test(record.url)) {
       urls.add(canonicalizeUrl(record.url))
     }
-    // `data`: exaApi.answer returns { answer, data: <raw response with citations> }.
+    // exaApi.answer wraps the response as { answer, data: { answer, citations } }.
     for (const key of ["data", "citations", "sources", "results", "basis", "fields", "output"]) {
       if (key in record) visit(record[key], depth + 1)
     }
