@@ -148,7 +148,7 @@ describe("corpus commands", () => {
   it.effect("read fails cleanly for unknown documents", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(corpusRead({ id: 99 }))
-      expect(error._tag).toBe("CommandInputError")
+      expect(error._tag).toBe("NotFoundError")
     }).pipe(Effect.provide(stubCorpus(docs).layer)),
   )
 

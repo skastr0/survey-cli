@@ -28,7 +28,7 @@ export const UnifiedSearchInput = Schema.Struct({
     description: "free: only keyless/local access (no account credits). any (default): keyed where configured.",
   })),
   /** Read the top n fused results into the corpus after searching (default 0 = search only). */
-  read_top: Schema.optional(Schema.Int),
+  read_top: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   read_concurrency: Schema.optional(Schema.Int),
   /** Reuse a corpus copy younger than this instead of fetching again. */
   max_age_ms: Schema.optional(Schema.Int),

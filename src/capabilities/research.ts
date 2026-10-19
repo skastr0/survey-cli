@@ -164,7 +164,11 @@ const startAndWait = (member: JuryMember, timeoutMs: number): Effect.Effect<Prov
           remote_id: remoteId,
           output: checked,
           sources: collectUrls(checked),
-          error: { type: "JobFailed", message: `${provider} run ended with status ${status}` },
+          error: {
+            type: "JobFailed",
+            message: `${provider} run ended with status ${status}`,
+            details: { retryable: false, hint: "Inspect the member run with `survey runs inspect`." },
+          },
         }
       }
       yield* Effect.sleep(2500)
@@ -175,7 +179,11 @@ const startAndWait = (member: JuryMember, timeoutMs: number): Effect.Effect<Prov
       remote_id: remoteId,
       output: latest,
       sources: collectUrls(latest),
-      error: { type: "JobWaitTimeoutError", message: `${provider} run exceeded ${timeoutMs}ms` },
+      error: {
+        type: "JobWaitTimeoutError",
+        message: `${provider} run exceeded ${timeoutMs}ms`,
+        details: { retryable: true, hint: "Use `survey research start` + `research check` for long runs." },
+      },
     }
   }).pipe(
     Effect.catch((error) =>
@@ -648,8 +656,16 @@ const pollMembers = (payload: AsyncResearchPayload) =>
                 output,
                 sources: collectUrls(output),
                 error: TERMINAL.includes(status)
-                  ? { type: "JobFailed", message: `${record.provider} run ended with status ${statusText(output)}` }
-                  : { type: "JobWaitTimeoutError", message: `${record.provider} run exceeded ${timeoutOf(payload.input)}ms` },
+                  ? {
+                      type: "JobFailed",
+                      message: `${record.provider} run ended with status ${statusText(output)}`,
+                      details: { retryable: false },
+                    }
+                  : {
+                      type: "JobWaitTimeoutError",
+                      message: `${record.provider} run exceeded ${timeoutOf(payload.input)}ms`,
+                      details: { retryable: true },
+                    },
               },
             }
           }
@@ -671,7 +687,11 @@ const finalizeWith = Effect.fn("finalizeWith")(function* (
         ok: false,
         ...(state.remote_id ? { remote_id: state.remote_id } : {}),
         sources: [],
-        error: { type: "Incomplete", message: `${state.provider} was still ${state.status} at finalize` },
+        error: {
+          type: "Incomplete",
+          message: `${state.provider} was still ${state.status} at finalize`,
+          details: { retryable: true },
+        },
       },
   )
   const lanes = yield* evidenceLanes(payload.input, payload.members.length).pipe(withTier(payload.input.tier))

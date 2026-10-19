@@ -5,7 +5,7 @@ import type { AppEnv } from "../core/env"
 import { makeJsonCommand } from "../core/command"
 import { recallDocument, rememberDocument } from "../core/corpus"
 import { registerContract } from "../core/discovery"
-import { AllProvidersFailedError, ApiResponseError, ProviderUnsupportedError } from "../core/errors"
+import { AllProvidersFailedError, CommandInputError, ApiResponseError, ProviderUnsupportedError } from "../core/errors"
 import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { ProviderName } from "../core/registry"
@@ -144,6 +144,12 @@ const tryProvider = (
 export const unifiedFetch = Effect.fn("unifiedFetch")(function* (
   input: UnifiedFetchInput,
 ) {
+  if (!/^https?:\/\/[^\s/]+/i.test(input.url)) {
+    return yield* new CommandInputError({
+      field: "url",
+      message: `fetch needs an absolute http(s) URL, got "${input.url}"`,
+    })
+  }
   const order = input.providers ?? DEFAULT_ORDER
   const { eligible, skipped } = yield* routeProviders({
     requested: order,

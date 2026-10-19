@@ -313,7 +313,7 @@ describe("search read_top", () => {
 
   it.live("read_concurrency bounds parallel fetches", () =>
     Effect.gen(function* () {
-      const port = yield* Effect.promise(() => keenableStub({ delayMs: 40 }))
+      const port = yield* Effect.promise(() => keenableStub({ delayMs: 200 }))
       process.env.KEENABLE_API_BASE_URL = `http://127.0.0.1:${port}`
       yield* run(["search", json({ query: "q", providers: ["keenable"], tier: "free", read_top: 4, read_concurrency: 1 })])
       expect(maxInFlight).toBe(1)

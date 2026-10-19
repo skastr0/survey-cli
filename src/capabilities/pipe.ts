@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect"
 import { makeJsonCommand } from "../core/command"
 import { getContract, registerContract } from "../core/discovery"
 import { CommandInputError } from "../core/errors"
+import { setExitCode } from "../core/output"
 import { type Envelope, envelopeOf, type Executor, spawnExecutor } from "../core/exec"
 import { PathError, resolveReference, resolveValue, type Scope } from "../core/jsonpath"
 
@@ -79,14 +80,22 @@ const execOnce = (exec: Executor, step: PipeStep, input: unknown) =>
               orElse: () =>
                 Effect.succeed<Envelope>({
                   ok: false,
-                  error: { type: "TimeoutError", message: `step ${step.id} timed out after ${step.timeout_ms}ms` },
+                  error: {
+                    type: "TimeoutError",
+                    message: `step ${step.id} timed out after ${step.timeout_ms}ms`,
+                    details: { retryable: true, hint: "Raise the step's timeout_ms or use the command's start/check orbit." },
+                  },
                 }),
             }),
           ),
     Effect.catch((error) =>
       Effect.succeed<Envelope>({
         ok: false,
-        error: { type: "ExecError", message: error instanceof Error ? error.message : String(error) },
+        error: {
+          type: "ExecError",
+          message: error instanceof Error ? error.message : String(error),
+          details: { retryable: false, hint: "The survey subprocess could not be started; check `survey doctor`." },
+        },
       }),
     ),
   )
@@ -207,6 +216,9 @@ export const runPipeline = (input: PipeInput, exec: Executor = spawnExecutor) =>
       input.output === undefined
         ? undefined
         : yield* Effect.try({ try: () => resolveValue(input.output, { root }), catch: pathError("output") })
+
+    // Like batch commands: full results on stdout, exit 1 when any step failed.
+    if (!ok) yield* setExitCode(1)
 
     return {
       ok,

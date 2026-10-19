@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 import { setExitCode, toErrorDetails } from "../core/output"
 import { diffLines } from "../core/diff"
 import { registerContracts } from "../core/discovery"
-import { CommandInputError } from "../core/errors"
+import { CommandInputError, NotFoundError } from "../core/errors"
 import { convertIngestFile, corpusRecord, DOCUMENT_EXTENSIONS, isConvertiblePath, unifiedConvert } from "./convert"
 import {
   corpusExportCommand,
@@ -235,9 +235,11 @@ const requireDocument = (ref: { readonly id?: number | undefined; readonly url?:
     const corpus = yield* Corpus
     const doc = yield* corpus.get(ref)
     if (doc === undefined) {
-      return yield* new CommandInputError({
-        field: ref.id !== undefined ? "id" : "url",
+      return yield* new NotFoundError({
+        resource: "corpus document",
+        id: String(ref.id ?? ref.url),
         message: `No corpus document for ${ref.id ?? ref.url}`,
+        next_step: `survey corpus search '{"query":"..."}' or survey corpus list '{}' to find ids`,
       })
     }
     return doc
