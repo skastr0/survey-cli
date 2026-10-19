@@ -11,12 +11,12 @@ registerContracts([
   {
     command: "anydoc convert",
     description:
-      "Convert doc/docx/odt/rtf/epub/pdf/ppt/pptx/xls/xlsx/ods/odp/csv to GFM Markdown with the local @firecrawl/anydoc engine (no network, no key). Source is exactly one of path | url | base64; a URL is downloaded then converted locally. Scanned PDFs fail with code needsOcr; hosted OCR is never used.",
+      "Convert doc/docx/odt/rtf/epub/pdf/ppt(x)/xls(x)/ods/odp/csv to GFM Markdown locally with @firecrawl/anydoc (no network, no key). Input: {path | url | base64, format?}. Returns markdown; scanned PDFs fail with needsOcr.",
     inputSchema: AnydocConvertInputSchema,
     batch: true,
     orbit,
     output:
-      "{ tool: {name, mode, version}, operation, source, elapsed_ms, format, chars, markdown } or a batch summary for array input",
+      "{ tool: { name, mode, version }, operation, source: { kind, path?, url?, filename?, content_type?, bytes }, elapsed_ms, format, chars, markdown }; array input returns a batch summary { outcome, success_count, error_count, results[{ index, ok, data?, error? }] }",
     examples: [
       { name: "convert a local file", input: { path: "./report.docx" } },
       {
@@ -36,10 +36,12 @@ registerContracts([
   {
     command: "anydoc detect",
     description:
-      "Detect the document format from its bytes (signature) with the extension as fallback. Requires the node module.",
+      "Detect a document's format from its bytes (signature), falling back to the extension; requires the node module. Input: {path | url | base64, filename?}. Returns the detected format.",
     inputSchema: AnydocDetectInputSchema,
     batch: true,
     orbit,
+    output:
+      "{ tool: { name, mode, version }, operation, source: { kind, path?, url?, filename?, content_type?, bytes }, elapsed_ms, format, from_content, from_extension }; array input returns a batch summary { outcome, success_count, error_count, results[{ index, ok, data?, error? }] }",
     examples: [
       { name: "detect a file", input: { path: "./mystery.bin" } },
       { name: "detect with a name hint", input: { base64: "YSxiCjEsMgo=", filename: "data.csv" } },
@@ -48,10 +50,12 @@ registerContracts([
   {
     command: "anydoc document",
     description:
-      "Parse a non-PDF document into the anydoc document model (blocks, footnotes, embedded assets). Asset bytes are omitted unless include_assets is true. Requires the node module.",
+      "Parse a non-PDF document into the anydoc document model; requires the node module. Input: {path | url | base64, format?, include_assets?}. Returns blocks, notes, and asset metadata (bytes only with include_assets).",
     inputSchema: AnydocDocumentInputSchema,
     batch: true,
     orbit,
+    output:
+      "{ tool: { name, mode, version }, operation, source: { kind, path?, url?, filename?, content_type?, bytes }, elapsed_ms, format, document: { blocks, notes, assets[{ id, mediaType, originPart, bytes, data_base64? }] } }; array input returns a batch summary { outcome, success_count, error_count, results[{ index, ok, data?, error? }] }",
     examples: [
       { name: "document model", input: { path: "./report.docx" } },
       {
