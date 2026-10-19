@@ -430,6 +430,7 @@ export const parallelSearchCommand = makeBatchJsonCommand({
         recordSources("parallel", extractUrls(response.results))
       ),
       Effect.map((response) => ({
+        auth_mode: response.auth_mode,
         search_id: response.search_id,
         session_id: response.session_id,
         results: response.results,
@@ -452,6 +453,7 @@ export const parallelExtractCommand = makeBatchJsonCommand({
         recordSources("parallel", extractUrls(response.results))
       ),
       Effect.map((response) => ({
+        auth_mode: response.auth_mode,
         extract_id: response.extract_id,
         session_id: response.session_id,
         results: response.results,

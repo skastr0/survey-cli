@@ -58,7 +58,8 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     envVar: "EXA_API_KEY",
     baseUrlEnv: "EXA_API_BASE_URL",
     defaultBaseUrl: "https://api.exa.ai",
-    keyHint: "Export EXA_API_KEY from your Exa API settings.",
+    keyHint:
+      "Export EXA_API_KEY from your Exa API settings. Without a key, web-search and contents (by URL) use Exa's keyless hosted MCP tier.",
     auth: { kind: "header", header: "x-api-key" },
     capabilities: [
       "search",
@@ -68,7 +69,7 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "find_similar",
       "code_context",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   firecrawl: {
     name: "firecrawl",
@@ -97,7 +98,8 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     envVar: "PARALLEL_API_KEY",
     baseUrlEnv: "PARALLEL_API_BASE_URL",
     defaultBaseUrl: "https://api.parallel.ai",
-    keyHint: "Export PARALLEL_API_KEY from your Parallel dashboard.",
+    keyHint:
+      "Export PARALLEL_API_KEY from your Parallel dashboard. Without a key, search and extract use Parallel's free Search MCP.",
     auth: { kind: "header", header: "x-api-key" },
     capabilities: [
       "search",
@@ -106,7 +108,7 @@ export const PROVIDERS: Record<ProviderName, ProviderSpec> = {
       "entity_search",
       "monitor",
     ],
-    publicFallback: false,
+    publicFallback: true,
   },
   keenable: {
     name: "keenable",

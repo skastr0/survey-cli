@@ -1351,7 +1351,8 @@ describe("parallel provider", () => {
   it.effect("returns structured error for missing API key", () =>
     Effect.gen(function* () {
       const result = yield* runCli(
-        ["extract", '{"urls":["https://example.com"]}'],
+        // entity-search is keyed-only; extract would use the free Search MCP.
+        ["findall", "entity-search", '{"entity_type":"companies","objective":"AI labs"}'],
         { PARALLEL_API_KEY: undefined },
       )
 
@@ -1369,7 +1370,7 @@ describe("parallel provider", () => {
 
       expect(result.exitCode).toBe(1)
       expect(payload.ok).toBe(true)
-      expect(payload.command).toBe("parallel extract")
+      expect(payload.command).toBe("parallel findall entity-search")
       expect(payload.data.outcome).toBe("failed")
       const item = payload.data.results[0]
       expect(item?.error.type).toBe("MissingApiKeyError")

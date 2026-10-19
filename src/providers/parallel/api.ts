@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect"
 import { CommandInputError } from "../../core/errors"
 import { requestJson, requestText } from "../../core/http"
 import { decodeUnknownJsonText } from "../../core/json"
+import { loadProviderConfig } from "../../core/registry"
 
 import {
   DeepResearchEventsInput,
@@ -34,6 +35,7 @@ import {
   type FindAllEnrichmentV1,
   type TaskRunStatus,
 } from "./schemas"
+import { keylessExtract, keylessSearch } from "./keyless"
 import { parseServerSentEvents } from "./sse"
 
 export const BETA_HEADER = "parallel-beta"
@@ -159,6 +161,9 @@ const resolveSourcePolicy = (input: {
 export const search = (input: SearchInput) =>
   Effect.gen(function* () {
     const searchQueries = yield* resolveSearchQueries(input)
+    if ((yield* loadProviderConfig("parallel")).credential === undefined) {
+      return yield* keylessSearch(input, searchQueries)
+    }
     const sourcePolicy = resolveSourcePolicy(input)
     const advancedSettings = compactObject({
       source_policy: sourcePolicy,
@@ -172,7 +177,7 @@ export const search = (input: SearchInput) =>
       max_results: input.max_results ?? input.advanced_settings?.max_results,
     })
 
-    return yield* requestJson({
+    const response = yield* requestJson({
       provider: "parallel",
       method: "POST",
       path: "/v1/search",
@@ -187,6 +192,7 @@ export const search = (input: SearchInput) =>
       }),
       responseSchema: SearchResponse,
     })
+    return { ...response, auth_mode: "keyed" as const }
   })
 
 export const extract = (input: ExtractInput) =>
@@ -225,6 +231,10 @@ export const extract = (input: ExtractInput) =>
         input.advanced_settings?.excerpt_settings ??
         (input.excerpts && input.excerpts !== true ? input.excerpts : undefined),
     )
+    if ((yield* loadProviderConfig("parallel")).credential === undefined) {
+      return yield* keylessExtract(input)
+    }
+
     const fullContent = input.full_content ?? input.advanced_settings?.full_content
     const advancedSettings = compactObject({
       fetch_policy: compactObject(
@@ -234,7 +244,7 @@ export const extract = (input: ExtractInput) =>
       full_content: fullContent === false ? undefined : fullContent,
     })
 
-    return yield* requestJson({
+    const response = yield* requestJson({
       provider: "parallel",
       method: "POST",
       path: "/v1/extract",
@@ -249,6 +259,7 @@ export const extract = (input: ExtractInput) =>
       }),
       responseSchema: ExtractResponse,
     })
+    return { ...response, auth_mode: "keyed" as const }
   })
 
 export const createTaskRun = (

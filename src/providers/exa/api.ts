@@ -2,6 +2,7 @@ import { Effect } from "effect"
 
 import { requestJson, requestText } from "../../core/http"
 import { CommandInputError, JobWaitTimeoutError } from "../../core/errors"
+import { loadProviderConfig } from "../../core/registry"
 import { extractUrls, recordRun, recordSources, updateRun } from "../../core/runs"
 import { Store, type RunStatus } from "../../core/store"
 import {
@@ -28,6 +29,7 @@ import {
   type LinkedinSearchInput,
   type WebSearchInput,
 } from "./schemas"
+import { keylessContents, keylessWebSearch } from "./keyless"
 
 const DEFAULT_NUM_RESULTS = 8
 const DEFAULT_MAX_CHARACTERS = 2000
@@ -454,6 +456,13 @@ export const webSearch = Effect.fn("exa.webSearch")(function* (input: WebSearchI
     )
   }
 
+  const keyed = (yield* loadProviderConfig("exa")).credential !== undefined
+  if (!keyed && input.stream !== true) {
+    const result = yield* keylessWebSearch(input, input.numResults ?? DEFAULT_NUM_RESULTS)
+    yield* recordSources("exa", extractUrls(result.data))
+    return result
+  }
+
   const body = omitUndefined({
     query: input.query,
     type,
@@ -505,6 +514,7 @@ export const webSearch = Effect.fn("exa.webSearch")(function* (input: WebSearchI
   })
 
   const result = {
+    auth_mode: "keyed" as const,
     context: isRecord(data) && "context" in data ? data.context : undefined,
     output: isRecord(data) && "output" in data ? data.output : undefined,
     data,
@@ -618,6 +628,13 @@ export const contents = Effect.fn("exa.contents")(function* (input: ContentsInpu
 
   yield* validateContentsOptions(resolvedContents)
 
+  const keylessUrls = input.urls ?? (input.url ? [input.url] : undefined)
+  if ((yield* loadProviderConfig("exa")).credential === undefined && keylessUrls) {
+    const result = yield* keylessContents(input, keylessUrls)
+    yield* recordSources("exa", extractUrls(result.results))
+    return result
+  }
+
   const data = yield* requestJson({
     provider: "exa",
     method: "POST",
@@ -634,7 +651,7 @@ export const contents = Effect.fn("exa.contents")(function* (input: ContentsInpu
     responseSchema: UnknownRecord,
   })
   yield* recordSources("exa", extractUrls(data))
-  return data
+  return { ...data, auth_mode: "keyed" as const }
 })
 
 export const crawl = Effect.fn("exa.crawl")(function* (input: CrawlInput) {

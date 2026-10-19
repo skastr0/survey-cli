@@ -21,6 +21,10 @@ export interface TierRule {
 }
 
 export const TIER_RULES: Partial<Record<ProviderName, TierRule>> = {
+  // Hosted MCP keyless tier: web_search_exa / web_fetch_exa at https://mcp.exa.ai/mcp.
+  exa: { public: ["search", "fetch"] },
+  // Free Search MCP: web_search / web_fetch at https://search.parallel.ai/mcp.
+  parallel: { public: ["search", "fetch"] },
   // POST /v1/search/public, GET /v1/fetch/public.
   keenable: { public: ["search", "fetch"] },
   // https://www.firecrawl.dev/agent-onboarding/SKILL.md, "Path F: Keyless Free Tier":
