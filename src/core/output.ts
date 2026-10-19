@@ -1,6 +1,6 @@
 import { Cause, Effect } from "effect"
 
-import { ARTIFACT_DIR_ENV, CLI_HOME_ENV } from "./constants"
+import { ARTIFACT_DIR_ENV, CLI_HOME_ENV, CLI_NAME } from "./constants"
 
 interface SuccessEnvelope {
   readonly ok: true
@@ -28,12 +28,20 @@ export const setExitCode = (exitCode: number) =>
     process.exitCode = exitCode
   })
 
-const isTaggedError = (
-  error: unknown,
-): error is Error & { _tag: string; message: string; [key: string]: unknown } =>
-  error instanceof Error &&
-  "_tag" in error &&
-  typeof (error as Record<string, unknown>)._tag === "string"
+type TaggedRecord = { readonly _tag: string; readonly message: string; readonly [key: string]: unknown }
+
+/**
+ * Tagged errors arrive as `Schema.TaggedError` instances, but a plain
+ * `Effect.fail({ _tag, ... })` record must render the same envelope rather
+ * than collapsing to `{ type: "Error", message: "[object Object]" }`.
+ */
+const asTagged = (error: unknown): TaggedRecord | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const record = error as Record<string, unknown>
+  if (typeof record._tag !== "string") return undefined
+  if (error instanceof Error) return error as unknown as TaggedRecord
+  return { ...record, _tag: record._tag, message: typeof record.message === "string" ? record.message : record._tag }
+}
 
 const secretKeyPattern = /api[-_]?key|authorization|bearer|cookie|password|secret|token|credential/i
 
@@ -57,8 +65,48 @@ const sanitizeForDetails = (value: unknown): unknown => {
 const isRetryableStatus = (status: number) =>
   status === 408 || status === 409 || status === 429 || status >= 500
 
-export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
-  if (isTaggedError(error)) {
+export interface ErrorContext {
+  /** Command path the error came from; enables `survey schema show` next steps. */
+  readonly command?: string | undefined
+}
+
+const DISCOVERY_COMMANDS = new Set(["schema show", "schema list", "examples show", "examples list"])
+
+const inputContractStep = (context: ErrorContext | undefined) =>
+  context?.command && !DISCOVERY_COMMANDS.has(context.command)
+    ? `Run \`${CLI_NAME} schema show "${context.command}"\` for the input contract and \`${CLI_NAME} examples show "${context.command}"\` for working payloads.`
+    : `Run \`${CLI_NAME} schema list\` to find the command, then \`${CLI_NAME} schema show "<command>"\`.`
+
+const jsonInputHint = (reason: string) => {
+  switch (reason) {
+    case "EmptyInput":
+      return "Pass the JSON payload as the argument, or @file, -, or @- to read it from a file or stdin."
+    case "InvalidJson":
+      return "The input is not valid JSON. Single-quote inline payloads for the shell, or pass them via @file."
+    case "InvalidShape":
+      return "The JSON parsed but does not match the command's input schema; fix the fields listed in issues."
+    case "MissingFilePath":
+      return "Write the path after @, e.g. @payload.json."
+    case "ReadFailed":
+      return "Check that the file exists and is readable, or pass the JSON inline."
+    default:
+      return "Provide a JSON object, JSON array, @file path, -, or @- input."
+  }
+}
+
+/** Fields every tagged error already exposes elsewhere in the envelope. */
+const ENVELOPE_KEYS = new Set(["_tag", "message", "name", "stack", "cause"])
+
+const genericTaggedDetails = (error: TaggedRecord) =>
+  sanitizeForDetails(
+    Object.fromEntries(
+      Object.entries(error).filter(([key, value]) => !ENVELOPE_KEYS.has(key) && typeof value !== "function" && typeof key === "string"),
+    ),
+  ) as Record<string, unknown>
+
+export const toErrorDetails = (rawError: unknown, context?: ErrorContext): ErrorEnvelope["error"] => {
+  const error = asTagged(rawError)
+  if (error) {
     switch (error._tag) {
       case "ConfigurationError": {
         return {
@@ -79,7 +127,7 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
             provider: error.provider as string,
             env_var: error.envVar as string,
             hint: error.hint as string,
-            next_step: `Set ${error.envVar as string} in the environment or run \`survey auth set '{"provider":"${error.provider as string}"}'\` before retrying.`,
+            next_step: `Set ${error.envVar as string} in the environment or run \`${CLI_NAME} auth set '{"provider":"${error.provider as string}","api_key":"..."}'\` before retrying.`,
             retryable: false,
           },
         }
@@ -91,7 +139,9 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
           details: {
             source: error.source as string,
             reason: error.reason as string,
-            hint: "Provide a JSON object, JSON array, @file path, -, or @- input.",
+            ...(error.issues ? { issues: error.issues } : {}),
+            hint: jsonInputHint(error.reason as string),
+            next_step: inputContractStep(context),
             retryable: false,
           },
         }
@@ -102,7 +152,24 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
           message: error.message,
           details: {
             field: error.field as string,
+            ...(error.issues ? { issues: error.issues } : {}),
             hint: "Correct the field value and rerun the command.",
+            next_step: inputContractStep(context),
+            retryable: false,
+          },
+        }
+      }
+      case "CliUsageError": {
+        const commandPath = error.command_path as ReadonlyArray<string>
+        return {
+          type: error._tag,
+          message: error.message,
+          details: {
+            command_path: commandPath,
+            issues: error.issues,
+            suggestions: error.suggestions,
+            hint: "Domain input goes in one JSON argument; flags are execution controls only.",
+            next_step: `Run \`${commandPath.join(" ")} --help\` for usage, or \`${CLI_NAME} capabilities\` for every command and the flags it accepts.`,
             retryable: false,
           },
         }
@@ -242,23 +309,42 @@ export const toErrorDetails = (error: unknown): ErrorEnvelope["error"] => {
           message: error.message,
           details: {
             provider: error.provider as string,
+            hint: "The MCP transport or remote MCP server failed; retry, then check the provider's MCP endpoint.",
             retryable: true,
           },
         }
       }
     }
+
+    return {
+      type: error._tag,
+      message: error.message,
+      details: {
+        ...genericTaggedDetails(error),
+        hint: "Unclassified failure; inspect the message and details.",
+        retryable: false,
+      },
+    }
   }
 
-  if (error instanceof Error) {
+  if (rawError instanceof Error) {
     return {
-      type: error.name || "Error",
-      message: error.message,
+      type: rawError.name || "Error",
+      message: rawError.message,
+      details: {
+        hint: "Unclassified failure; inspect the message.",
+        retryable: false,
+      },
     }
   }
 
   return {
     type: "Error",
-    message: String(error),
+    message: String(rawError),
+    details: {
+      hint: "Unclassified failure; inspect the message.",
+      retryable: false,
+    },
   }
 }
 
@@ -278,7 +364,7 @@ export const renderFailureEnvelope = (command: string | undefined, error: unknow
     {
       ok: false,
       ...(command ? { command } : {}),
-      error: toErrorDetails(error),
+      error: toErrorDetails(error, { command }),
     } satisfies ErrorEnvelope,
     null,
     2,
@@ -290,6 +376,27 @@ export const writeSuccessEnvelope = (command: string, data: unknown) =>
 export const writeFailureEnvelope = (command: string | undefined, error: unknown) =>
   writeLine(process.stderr, renderFailureEnvelope(command, error))
 
+/** Render a defect or interruption: the squashed error leads, the full trace sits in details. */
+export const causeToErrorDetails = (cause: Cause.Cause<unknown>): ErrorEnvelope["error"] => {
+  if (Cause.hasInterruptsOnly(cause)) {
+    return {
+      type: "InterruptedError",
+      message: "The command was interrupted before it finished.",
+      details: { hint: "Rerun the command; partial work may have been recorded.", retryable: true },
+    }
+  }
+  const squashed = Cause.squash(cause)
+  return {
+    type: "UnexpectedError",
+    message: squashed instanceof Error ? squashed.message : String(squashed),
+    details: {
+      trace: Cause.pretty(cause),
+      hint: `This is a ${CLI_NAME} defect, not an input problem. Report it with the trace.`,
+      retryable: false,
+    },
+  }
+}
+
 export const writeCauseEnvelope = (command: string | undefined, cause: Cause.Cause<unknown>) =>
   writeLine(
     process.stderr,
@@ -297,10 +404,7 @@ export const writeCauseEnvelope = (command: string | undefined, cause: Cause.Cau
       {
         ok: false,
         ...(command ? { command } : {}),
-        error: {
-          type: "UnexpectedError",
-          message: Cause.pretty(cause),
-        },
+        error: causeToErrorDetails(cause),
       } satisfies ErrorEnvelope,
       null,
       2,
@@ -312,5 +416,11 @@ export const executeJsonCommand = <A, E, R>(command: string, effect: Effect.Effe
     Effect.flatMap((data) => writeSuccessEnvelope(command, data)),
     Effect.catch((error) =>
       setExitCode(1).pipe(Effect.andThen(writeFailureEnvelope(command, error))),
+    ),
+    // Defects still get an envelope that names the command; interrupts propagate.
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : setExitCode(1).pipe(Effect.andThen(writeCauseEnvelope(command, cause))),
     ),
   )

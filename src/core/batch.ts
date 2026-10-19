@@ -53,12 +53,15 @@ export const decodeBatchItem = <S extends Schema.Constraint>(
         new CommandInputError({
           field: `items[${index}]`,
           message: error.message,
+          ...(error.issues ? { issues: error.issues } : {}),
         }),
     ),
   )
 
 export const runMutationBatch = <S extends Schema.Constraint, E, R, SR>(options: {
   readonly input: string
+  /** Command path, used to point per-item input errors at `survey schema show`. */
+  readonly command?: string
   readonly concurrency: number
   readonly itemSchema: S
   readonly validate?: (item: S["Type"]) => Effect.Effect<void, CommandInputError>
@@ -93,7 +96,7 @@ export const runMutationBatch = <S extends Schema.Constraint, E, R, SR>(options:
             Effect.succeed({
               index,
               ok: false as const,
-              error: toErrorDetails(error),
+              error: toErrorDetails(error, { command: options.command }),
             }),
           ),
         ),
