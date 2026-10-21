@@ -18,7 +18,7 @@ right now (keyed / public / local / unavailable).
 
 | Need | Command |
 |---|---|
-| Find sources, want agreement signal | `search` — results carry `providers[]`, per-provider `ranks`, `fusion_score` (RRF); `read_top: n` also reads the top n into the corpus |
+| Find sources, want agreement signal | `search` — results carry `providers[]`, per-provider `ranks`, `fusion_score` (weighted RRF: Keenable counts 1.5x, override with `weights`); `read_top: n` also reads the top n into the corpus |
 | Judge which provider is best for a query | `compare` |
 | Read one URL | `fetch` (stores into the corpus; `max_age_ms` reuses a fresh copy) |
 | Papers (arXiv, PubMed, bioRxiv, medRxiv) | `papers` — canonical `arxiv:`/`pmid:`/`doi:` ids, passage reads with `question` |
