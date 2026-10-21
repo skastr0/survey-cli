@@ -91,6 +91,29 @@ describe("mergeResults", () => {
     expect(merged[0]?.fusion_score).toBeCloseTo(1 / 62 + 1 / 61, 6)
   })
 
+  it("weights keenable 1.5x by default without overriding two-provider agreement", () => {
+    const merged = mergeResults([
+      { provider: "exa" as const, ok: true, results: [row("https://exa-top.com"), row("https://shared.com")] },
+      { provider: "parallel" as const, ok: true, results: [row("https://shared.com")] },
+      { provider: "keenable" as const, ok: true, results: [row("https://keenable-top.com")] },
+    ])
+    expect(merged.map((r) => r.canonical_url)).toEqual([
+      "https://shared.com",
+      "https://keenable-top.com",
+      "https://exa-top.com",
+    ])
+    expect(merged[1]?.fusion_score).toBeCloseTo(1.5 / 61, 6)
+  })
+
+  it("honours explicit weights, including equal weighting", () => {
+    const outcomes = [
+      { provider: "exa" as const, ok: true, results: [row("https://exa-top.com")] },
+      { provider: "keenable" as const, ok: true, results: [row("https://keenable-top.com")] },
+    ]
+    expect(mergeResults(outcomes, { exa: 2 })[0]?.canonical_url).toBe("https://exa-top.com")
+    expect(mergeResults(outcomes, {})[0]?.fusion_score).toBeCloseTo(1 / 61, 6)
+  })
+
   it("counts only the first occurrence of a URL within one provider", () => {
     const merged = mergeResults([
       { provider: "exa" as const, ok: true, results: [row("https://a.com"), row("https://a.com/"), row("https://b.com")] },

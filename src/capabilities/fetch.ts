@@ -16,7 +16,8 @@ import { keenableApi } from "../providers/keenable"
 import { parallelApi } from "../providers/parallel"
 import { tinyfishApi } from "../providers/tinyfish"
 
-const DEFAULT_ORDER: ReadonlyArray<ProviderName> = ["firecrawl", "tinyfish", "keenable", "exa", "parallel"]
+/** Keenable first (leads the Vals Web Search Index); the rest are fallbacks. */
+const DEFAULT_ORDER: ReadonlyArray<ProviderName> = ["keenable", "firecrawl", "tinyfish", "exa", "parallel"]
 
 export const UnifiedFetchInput = Schema.Struct({
   url: Schema.NonEmptyString,
@@ -243,7 +244,7 @@ export const fetchCommand = makeJsonCommand({
   name: "fetch",
   commandName: "fetch",
   description:
-    "Fetch one URL through a provider fallback chain (firecrawl, tinyfish, keenable, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
+    "Fetch one URL through a provider fallback chain (keenable, firecrawl, tinyfish, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
   schema: UnifiedFetchInput,
   run: (input) => unifiedFetch(input),
 })
@@ -251,7 +252,7 @@ export const fetchCommand = makeJsonCommand({
 registerContract({
   command: "fetch",
   description:
-    "Fetch one URL through a provider fallback chain (firecrawl, tinyfish, keenable, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
+    "Fetch one URL through a provider fallback chain (keenable, firecrawl, tinyfish, exa, parallel) and store it in the corpus. Input: url, format, providers, tier, max_age_ms (serve corpus copy), store, tags. Returns content plus corpus ref.",
   output:
     "{ url, provider, mode?, cost?, content (string|null), raw (provider payload; null when cached), attempted: [{ provider, ok, mode?, error? }] (skipped and failed providers in order), cached (true when served from the corpus under max_age_ms), age_ms? (cached only), corpus?: { id, version, changed (content differs from last fetch), created } }. corpus is absent when store is false or no content was extracted. All providers failing is AllProvidersFailedError.",
   inputSchema: UnifiedFetchInput,

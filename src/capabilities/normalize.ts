@@ -66,14 +66,25 @@ export const toResults = (payload: unknown): Array<ProviderRow> => {
 export const RRF_K = 60
 
 /**
+ * Per-provider RRF weights (default 1). Keenable leads the Vals Web Search
+ * Index (Oct 2026, Keenable-reported), so its ranks count 1.5×. With k=60
+ * that makes fused lists read Keenable-first: its top ~30 outrank any other
+ * single provider's #1, while a URL two other providers agree on still leads
+ * (2/(k+1) > 1.5/(k+1)). Override per call with `weights` ({keenable: 1} = plain RRF).
+ */
+export const DEFAULT_FUSION_WEIGHTS: Readonly<Record<string, number>> = { keenable: 1.5 }
+
+/**
  * Merge provider outcomes: dedupe by canonical URL, union provider
  * provenance, and rank with Reciprocal Rank Fusion — sum of 1/(k + rank)
- * over every provider that returned the URL. Raw provider scores are not
+ * over every provider that returned the URL, scaled by the provider's
+ * weight. Raw provider scores are not
  * comparable across indexes; ranks are. Corroboration lifts a result
  * naturally because each extra provider adds a term.
  */
 export const mergeResults = (
   outcomes: ReadonlyArray<ProviderOutcome>,
+  weights: Readonly<Record<string, number>> = DEFAULT_FUSION_WEIGHTS,
 ): Array<NormalizedResult> => {
   const merged = new Map<
     string,
@@ -86,7 +97,7 @@ export const mergeResults = (
       if (seen.has(result.canonical_url)) continue
       seen.add(result.canonical_url)
       rank += 1
-      const contribution = 1 / (RRF_K + rank)
+      const contribution = (weights[outcome.provider] ?? 1) / (RRF_K + rank)
       const existing = merged.get(result.canonical_url)
       if (existing) {
         if (!existing.providers.includes(outcome.provider)) {

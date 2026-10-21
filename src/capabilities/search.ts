@@ -8,7 +8,7 @@ import { toErrorDetails } from "../core/output"
 import { recordSources } from "../core/runs"
 import { ProviderName } from "../core/registry"
 import { routeProviders, Tier, withTier } from "../core/tiers"
-import { mergeResults, toResults, type NormalizedResult, type ProviderOutcome } from "./normalize"
+import { DEFAULT_FUSION_WEIGHTS, mergeResults, RRF_K, toResults, type NormalizedResult, type ProviderOutcome } from "./normalize"
 import { exaApi } from "../providers/exa"
 import { parallelApi } from "../providers/parallel"
 import { keenableApi } from "../providers/keenable"
@@ -17,7 +17,10 @@ import { tinyfishApi } from "../providers/tinyfish"
 import { unifiedFetch } from "./fetch"
 
 const SearchProviders = Schema.Array(ProviderName)
-const SEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["exa", "parallel", "keenable", "firecrawl", "tinyfish"]
+/** Keenable first: it leads the Vals Web Search Index and carries the highest fusion weight. */
+const SEARCH_ADAPTERS: ReadonlyArray<ProviderName> = ["keenable", "exa", "parallel", "firecrawl", "tinyfish"]
+
+const FusionWeight = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))
 
 export const UnifiedSearchInput = Schema.Struct({
   query: Schema.NonEmptyString,
@@ -27,6 +30,16 @@ export const UnifiedSearchInput = Schema.Struct({
   tier: Schema.optional(Tier.annotate({
     description: "free: only keyless/local access (no account credits). any (default): keyed where configured.",
   })),
+  /** Per-provider fusion weights merged over the defaults ({keenable: 1.5}, others 1); 0 keeps a provider's results but stops them ranking. */
+  weights: Schema.optional(
+    Schema.Struct({
+      keenable: Schema.optional(FusionWeight),
+      exa: Schema.optional(FusionWeight),
+      parallel: Schema.optional(FusionWeight),
+      firecrawl: Schema.optional(FusionWeight),
+      tinyfish: Schema.optional(FusionWeight),
+    }),
+  ),
   /** Read the top n fused results into the corpus after searching (default 0 = search only). */
   read_top: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   read_concurrency: Schema.optional(Schema.Int),
@@ -166,13 +179,18 @@ export const unifiedSearch = Effect.fn("unifiedSearch")(function* (
     }
   }
 
-  const merged = mergeResults(outcomes)
+  const weights: Record<string, number> = { ...DEFAULT_FUSION_WEIGHTS }
+  for (const [provider, weight] of Object.entries(input.weights ?? {})) {
+    if (weight !== undefined) weights[provider] = weight
+  }
+  const merged = mergeResults(outcomes, weights)
   const results = yield* readTop(merged, input)
 
   return {
     query: input.query,
     results,
     providers_used: outcomes.filter((o) => o.ok).map((o) => o.provider),
+    fusion: { method: "weighted_rrf" as const, k: RRF_K, weights },
     routing: eligible.map(({ provider, access }) => ({ provider, mode: access.mode, cost: access.cost })),
     failures: outcomes
       .filter((o) => !o.ok)
@@ -190,7 +208,7 @@ export const searchCommand = makeJsonCommand({
   name: "search",
   commandName: "search",
   description:
-    "Fan out a web query to Exa, Parallel, Keenable, Firecrawl and TinyFish; fuse by canonical URL with RRF. Input: query, num_results, providers, tier, read_top (fetch top n into corpus). Returns ranked results with provenance.",
+    "Fan out a web query to Keenable, Exa, Parallel, Firecrawl and TinyFish; fuse by canonical URL with weighted RRF (Keenable 1.5x by default). Input: query, num_results, providers, tier, weights, read_top (fetch top n into corpus). Returns ranked results with provenance.",
   schema: UnifiedSearchInput,
   run: (input) => unifiedSearch(input),
 })
@@ -198,9 +216,9 @@ export const searchCommand = makeJsonCommand({
 registerContract({
   command: "search",
   description:
-    "Fan out a web query to Exa, Parallel, Keenable, Firecrawl and TinyFish; fuse by canonical URL with RRF. Input: query, num_results, providers, tier, read_top (fetch top n into corpus). Returns ranked results with provenance.",
+    "Fan out a web query to Keenable, Exa, Parallel, Firecrawl and TinyFish; fuse by canonical URL with weighted RRF (Keenable 1.5x by default). Input: query, num_results, providers, tier, weights, read_top (fetch top n into corpus). Returns ranked results with provenance.",
   output:
-    "{ query, results: [{ url, canonical_url, title?, snippet?, score?, published_at?, providers[], ranks{provider: 1-based rank}, fusion_score (RRF, sorted desc), read?: { provider, cached, chars }, corpus?: { id, version, changed }, read_error? }], providers_used[], routing: [{ provider, mode, cost }], failures: [{ provider, error }], skipped: [{ provider, reason }], dedupe: { before, after, corroborated } }. read/corpus/read_error appear only on the top read_top rows.",
+    "{ query, results: [{ url, canonical_url, title?, snippet?, score?, published_at?, providers[], ranks{provider: 1-based rank}, fusion_score (weighted RRF, sorted desc), read?: { provider, cached, chars }, corpus?: { id, version, changed }, read_error? }], providers_used[], fusion: { method: \"weighted_rrf\", k, weights{provider: weight} }, routing: [{ provider, mode, cost }], failures: [{ provider, error }], skipped: [{ provider, reason }], dedupe: { before, after, corroborated } }. read/corpus/read_error appear only on the top read_top rows.",
   inputSchema: UnifiedSearchInput,
   examples: [
     {
@@ -210,6 +228,10 @@ registerContract({
     {
       name: "explicit providers",
       input: { query: "firecrawl v2 extract", providers: ["exa", "keenable"] },
+    },
+    {
+      name: "equal fusion weights",
+      input: { query: "sqlite fts5 bm25 tuning", weights: { keenable: 1 } },
     },
     {
       name: "free tier only",
