@@ -7,6 +7,18 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-21
+
+### Changed
+
+- Keenable is the preferred provider (it leads the Vals Web Search Index,
+  Oct 2026). Unified `search` fuses with weighted Reciprocal Rank Fusion,
+  Keenable 1.5× by default, so fused lists read Keenable-first while URLs
+  corroborated by two other providers still lead; `{weights}` overrides per
+  call and responses report `fusion {method, k, weights}`. Keenable is first in
+  search routing and in the `fetch` fallback chain
+  (keenable → firecrawl → tinyfish → exa → parallel).
+
 ## [0.1.7] - 2026-10-19
 
 First release since 0.1.1. Versions 0.1.2–0.1.5 were never tagged; v0.1.6
