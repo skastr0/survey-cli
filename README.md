@@ -17,6 +17,18 @@ bun install && bun run build && bun run install:local   # → ~/.local/bin/surve
 npm i -g @skastr0/survey
 ```
 
+## Learn it from the binary
+
+Agents need no external skill: the playbook ships inside the binary.
+
+```bash
+survey guide                              # overview, topics, where to start
+survey guide '{"topic":"pipe"}'           # one topic + the live contracts of its commands
+survey guide '{"format":"skill"}' | jq -r .data.markdown > SKILL.md   # save as a harness skill
+```
+
+`skills/survey/SKILL.md` is rendered from the same source (`bun run gen:skill`).
+
 ## The two layers
 
 **Provider namespaces** — every provider operation, verbatim payloads:

@@ -61,6 +61,9 @@ Never hit live provider APIs in unit tests.
   `inputSchema` + examples. MCP tools, `schema show`, and `test/contracts.test.ts`
   (decodes every example) are all derived from contracts. Optional schema keys must
   not accept `null` — `stripNullBranches` keeps advertised schemas honest.
+- `survey guide` is the agent playbook embedded in the binary (`src/guide/topics.ts`);
+  `skills/survey/SKILL.md` is rendered from it and `test/guide.test.ts` fails on drift.
+  When you add a capability, add it to a guide topic.
 - Unified search fuses with Reciprocal Rank Fusion (`normalize.ts`): results carry
   `ranks{provider}` and `fusion_score`; never sort on raw cross-provider scores.
 
@@ -74,6 +77,7 @@ bun run build
 bun run verify
 bun run smoke          # binary smoke: discovery completeness + corpus/pipe/MCP on real sqlite
 bun run bump           # patch-bump every pinned version (package.json ×6 + CLI_VERSION)
+bun run gen:skill      # re-render skills/survey/SKILL.md from src/guide/topics.ts
 ```
 
 Release: `bun run bump` → commit `chore: bump version to x.y.z` → tag `vx.y.z` → push

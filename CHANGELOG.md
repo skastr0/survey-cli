@@ -7,6 +7,16 @@ types, and exit codes. It follows Semantic Versioning; while the version is
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-22
+
+### Added
+
+- `survey guide`: the agent playbook embedded in the binary — an overview and
+  topic list, one topic with the live contracts (description, output, example)
+  of its commands, or `{"format":"skill"}` for the whole playbook as SKILL.md.
+  Root `--help` and `capabilities.discovery` point to it first.
+  `skills/survey/SKILL.md` is now rendered from the same source.
+
 ## [0.1.8] - 2026-10-21
 
 ### Changed
