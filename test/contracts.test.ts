@@ -8,10 +8,17 @@ import { Schema } from "effect"
 // capabilities are covered without touching this file.
 import.meta.glob(["../src/capabilities/*.ts", "../src/providers/*/index.ts", "../src/commands/*.ts"], { eager: true })
 
-import { listContracts } from "../src/core/discovery"
+import { listContracts, matchesCommandGlob } from "../src/core/discovery"
+import { TOPICS } from "../src/guide/topics"
 
 describe("command contracts", () => {
   const contracts = listContracts()
+
+  it("every guide topic points at registered commands", () => {
+    const commands = contracts.map((contract) => contract.command)
+    const dead = TOPICS.flatMap((topic) => topic.commands.filter((glob) => !commands.some((c) => matchesCommandGlob(c, [glob]))))
+    expect(dead).toEqual([])
+  })
 
   it("registers a non-trivial command inventory", () => {
     expect(contracts.length).toBeGreaterThan(100)

@@ -29,7 +29,8 @@
     "install:local": "bun scripts/install.ts",
     "pack:dry-run": "bun run build:npm && npm pack --dry-run --workspaces --include-workspace-root=false 2>/dev/null || true",
     "bump": "bun scripts/bump.ts",
-    "smoke": "bun scripts/smoke.ts"
+    "smoke": "bun scripts/smoke.ts",
+    "gen:skill": "bun scripts/gen-skill.ts"
   },
   "resolutions": {
     "@effect/platform-node-shared": "4.0.0-rc.112",

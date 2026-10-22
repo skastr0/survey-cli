@@ -5,14 +5,15 @@ description: Multi-provider web, paper, and document research with the `survey` 
 
 # survey
 
-One JSON-in/JSON-out binary over Exa, Firecrawl, Parallel, Keenable, LlamaCloud,
-TinyFish, plus local anydoc/pdf-inspector. Every command takes one JSON object
+One JSON-in/JSON-out binary over Keenable, Exa, Parallel, Firecrawl, TinyFish,
+LlamaCloud, plus local anydoc/pdf-inspector. Every command takes one JSON object
 (inline, `@file`, or `-` for stdin) and prints `{ok:true, command, data}` on stdout
 or `{ok:false, command, error:{type, message, details}}` on stderr.
 
 Never guess a payload: `survey schema show "<command>"` and `survey examples show
 "<command>"` are authoritative. `survey doctor` shows which providers are usable
-right now (keyed / public / local / unavailable).
+right now (keyed / public / local / unavailable). `survey guide '{"topic":"<id>"}'`
+explains one area with the live contracts of its commands.
 
 ## Pick the command
 
@@ -20,7 +21,7 @@ right now (keyed / public / local / unavailable).
 |---|---|
 | Find sources, want agreement signal | `search` — results carry `providers[]`, per-provider `ranks`, `fusion_score` (weighted RRF: Keenable counts 1.5x, override with `weights`); `read_top: n` also reads the top n into the corpus |
 | Judge which provider is best for a query | `compare` |
-| Read one URL | `fetch` (stores into the corpus; `max_age_ms` reuses a fresh copy) |
+| Read one URL | `fetch` (keenable → firecrawl → tinyfish → exa → parallel; stores into the corpus; `max_age_ms` reuses a fresh copy) |
 | Papers (arXiv, PubMed, bioRxiv, medRxiv) | `papers` — canonical `arxiv:`/`pmid:`/`doi:` ids, passage reads with `question` |
 | PDF / DOCX / PPTX / XLSX / EPUB → Markdown | `convert` (local first; scanned PDFs escalate to LlamaCloud or report `needs_ocr`) |
 | Structured extraction | `extract` |
@@ -38,6 +39,9 @@ right now (keyed / public / local / unavailable).
 - `"tier": "free"` on unified commands restricts routing to keyless/local access
   (Keenable public, Firecrawl keyless incl. the Research Index, hosted free tiers,
   local tools) — it never spends credits.
+- Keys come from env vars or `survey auth set '{"provider":"exa","api_key":"…"}'`
+  (`auth.json`, mode 0600); `survey auth status` never prints them. A provider
+  without a key is skipped, not fatal (TinyFish needs a free account key).
 - Prefer `corpus search`/`grep`/`read` over re-fetching; prefer `fetch` with
   `max_age_ms` over a fresh fetch.
 - `research` and provider agents are the expensive calls; start with `search` +
@@ -68,6 +72,15 @@ Steps reference earlier envelopes: `$.<id>.data.path[0]`, `[*]`, `[a:b]`, `$item
 }
 ```
 
+## Research, verify, papers
+
+- `research start {query}` returns a `research_id` at once; poll `research check`
+  or block on `research wait`. The fused report is stored in the corpus.
+- `verify {claim}` asks several providers and groups citations into independent
+  sources; `confidence` comes from independent groups, not raw citation counts.
+- `domain: "academic"` (or `auto`) adds the paper index; `papers {query, question}`
+  returns passages from full text.
+
 ## MCP
 
 `survey mcp serve` mounts every command as a tool (`corpus search` → `corpus_search`).
@@ -75,9 +88,23 @@ Steps reference earlier envelopes: `$.<id>.data.path[0]`, `[*]`, `[a:b]`, `$item
 `include`/`exclude` globs to expose a subset; `timeout_ms` caps each tool call (default 10 min,
 then a retryable `TimeoutError`).
 
+## Script it
+
+```bash
+survey search '{"query":"…"}' | jq -r '.data.results[].url'          # data is always under .data
+jq -n --arg q "$QUERY" '{query:$q, tier:"free"}' | survey search -  # build payloads safely
+survey corpus add @payload.json                                     # @file input
+survey search '{"query":"…"}' 2> err.json || jq .error err.json     # failures: stderr + exit 1
+```
+
+- Exit 0 = success; exit 1 = failure (or any failed batch item / pipe step).
+- Outputs over 64 KB become an artifact pointer; `--output inline` forces inline.
+- `survey capabilities '{"command":"corpus *"}'` lists commands, flags, and input modes.
+
 ## Reading results
 
 - Batch commands return `{outcome, total, success_count, error_count, results[]}`;
   exit code 1 when any item failed — read per-item `ok`.
 - Large outputs may be written to an artifact file (`--output inline` forces inline).
-- Errors carry `details.retryable`; retry only when it is true.
+- Errors carry `details.retryable`; retry only when it is true. `details.next_step`
+  names the recovery call when there is one.

@@ -355,7 +355,7 @@ export const capabilitiesCommand = Command.make(
               .filter((surface) => surface.flags.some((flag) => flag.name === "idempotency-key"))
               .map((surface) => surface.command),
           },
-          discovery: ["doctor", "capabilities", "schema list", "schema show", "examples list", "examples show"],
+          discovery: ["guide", "doctor", "capabilities", "schema list", "schema show", "examples list", "examples show"],
           providers,
           local_providers: localProviders,
           tiers: {

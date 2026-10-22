@@ -43,10 +43,14 @@ import { llamaCommand } from "./providers/llama"
 import { parallelCommand } from "./providers/parallel"
 import { pdfInspectorCommand } from "./providers/pdf-inspector"
 import { tinyfishCommand } from "./providers/tinyfish"
+import { guideCommand } from "./commands/guide"
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
-  Command.withDescription("Consolidated researcher toolkit CLI — one binary, six providers, cross-provider research"),
+  Command.withDescription(
+    "Agent-first research CLI — one JSON-in/JSON-out binary over six providers, local document tools, a searchable corpus, pipelines, and MCP. Start here: `survey guide` (then `survey doctor`, `survey schema show \"<command>\"`).",
+  ),
   Command.withSubcommands([
+    guideCommand,
     authCommand,
     capabilitiesCommand,
     doctorCommand,

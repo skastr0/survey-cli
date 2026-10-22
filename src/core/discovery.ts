@@ -33,6 +33,13 @@ export const listContracts = () =>
 
 export const getContract = (command: string) => contracts.get(command)
 
+const globToRegex = (glob: string) =>
+  new RegExp(`^${glob.trim().replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`)
+
+/** Command-path globs (`corpus *`, `research*`); `_` matches a space so MCP tool names work too. */
+export const matchesCommandGlob = (command: string, globs: ReadonlyArray<string>) =>
+  globs.some((glob) => globToRegex(glob).test(command) || globToRegex(glob.replace(/_/g, " ")).test(command))
+
 const isNullBranch = (value: unknown) =>
   typeof value === "object" && value !== null && (value as Record<string, unknown>).type === "null" &&
   Object.keys(value).length === 1

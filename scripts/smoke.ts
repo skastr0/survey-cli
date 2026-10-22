@@ -71,6 +71,10 @@ try {
   const version = await run(["--version"])
   check("--version", /survey v\d+\.\d+\.\d+/.test(version.stdout), version.stdout)
 
+  const guide = await call(["guide"])
+  const skill = await call(["guide"], { format: "skill" })
+  check("guide overview + embedded skill", guide.ok && guide.data.topics.length > 0 && skill.ok && skill.data.markdown.startsWith("---\nname: survey"), guide.error ?? skill.error)
+
   const doctor = await call(["doctor"])
   check("doctor", doctor.ok, doctor.error)
 

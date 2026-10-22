@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline"
 
 import { CLI_NAME, CLI_VERSION } from "../core/constants"
-import { type CommandContract, contractJsonSchema, listContracts } from "../core/discovery"
+import { type CommandContract, contractJsonSchema, listContracts, matchesCommandGlob } from "../core/discovery"
 import { envelopeOf, type Executor, spawnExecutor } from "../core/exec"
 
 export { type Executor, selfCommand, spawnExecutor } from "../core/exec"
@@ -36,12 +36,6 @@ export interface ToolFilter {
 
 /** Commands never exposed unless explicitly included (they write secrets). */
 export const DEFAULT_EXCLUDES = ["auth set"]
-
-const globToRegex = (glob: string) =>
-  new RegExp(`^${glob.trim().replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`)
-
-const matchesAny = (command: string, globs: ReadonlyArray<string>) =>
-  globs.some((glob) => globToRegex(glob).test(command) || globToRegex(glob.replace(/_/g, " ")).test(command))
 
 export const toolName = (command: string) => command.replace(/[^a-zA-Z0-9]+/g, "_").slice(0, 64)
 
@@ -88,8 +82,8 @@ const describe = (contract: CommandContract) => {
 export const buildTools = (filter: ToolFilter = {}): ReadonlyArray<McpTool> => {
   const excludes = [...DEFAULT_EXCLUDES.filter((glob) => !(filter.include ?? []).includes(glob)), ...(filter.exclude ?? [])]
   return listContracts()
-    .filter((contract) => filter.include === undefined || matchesAny(contract.command, filter.include))
-    .filter((contract) => !matchesAny(contract.command, excludes))
+    .filter((contract) => filter.include === undefined || matchesCommandGlob(contract.command, filter.include))
+    .filter((contract) => !matchesCommandGlob(contract.command, excludes))
     .map((contract) => ({
       name: toolName(contract.command),
       title: `survey ${contract.command}`,
