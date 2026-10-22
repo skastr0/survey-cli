@@ -64,7 +64,7 @@ Never hit live provider APIs in unit tests.
 - `survey guide` is the agent playbook embedded in the binary (`src/guide/topics.ts`);
   `skills/survey/SKILL.md` is rendered from it and `test/guide.test.ts` fails on drift.
   When you add a capability, add it to a guide topic.
-- Unified search fuses with Reciprocal Rank Fusion (`normalize.ts`): results carry
+- Unified search fuses with weighted Reciprocal Rank Fusion (`normalize.ts`, Keenable 1.5×): results carry
   `ranks{provider}` and `fusion_score`; never sort on raw cross-provider scores.
 
 ## Development
